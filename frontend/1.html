@@ -14,15 +14,122 @@
       overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
+    /* 新增: 开始菜单样式 */
+.start-menu {
+  position: fixed;
+  bottom: 60px;
+  left: 20px;
+  width: 400px;
+  background: rgba(30, 30, 30, 0.98);
+  backdrop-filter: blur(20px);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  color: white;
+  overflow: hidden;
+  z-index: 1500;
+  animation: slideUp 0.2s ease-out;
+}
 
-    /* 桌面背景 */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.start-menu-header {
+  padding: 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.start-menu-section {
+  padding: 12px;
+}
+
+.start-menu-section-title {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.start-menu-item {
+  padding: 12px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: all 0.15s;
+}
+
+.start-menu-item:hover {
+  background: rgba(255,255,255,0.1);
+}
+
+.start-menu-item-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 新增: 顶部导航栏样式 */
+.top-navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 45px;
+  background: rgba(0,0,0,0.85);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  z-index: 999;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.navbar-button {
+  padding: 6px 16px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: white;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(255,255,255,0.2);
+}
+
+.navbar-button:hover {
+  background: rgba(255,255,255,0.2);
+}
+
+.navbar-divider {
+  width: 1px;
+  height: 24px;
+  background: rgba(255,255,255,0.2);
+  margin: 0 12px;
+}
+
+/* 调整桌面区域以适应顶部导航栏 */
+.desktop-with-navbar {
+  padding-top: 45px;
+}
     .desktop {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       position: relative;
       user-select: none;
     }
 
-    /* 桌面图标 */
     .desktop-icon {
       width: 90px;
       text-align: center;
@@ -37,7 +144,6 @@
       border-radius: 8px;
     }
 
-    /* 窗口系统 */
     .window {
       position: absolute;
       background: white;
@@ -86,7 +192,6 @@
       overflow: auto;
     }
 
-    /* 任务栏 */
     .taskbar {
       position: fixed;
       bottom: 0;
@@ -122,7 +227,6 @@
       background: rgba(255,255,255,0.3);
     }
 
-    /* 加载状态 */
     .loading {
       display: inline-block;
       width: 20px;
@@ -137,7 +241,6 @@
       to { transform: rotate(360deg); }
     }
 
-    /* 动画 */
     @keyframes fadeIn {
       from { opacity: 0; transform: scale(0.9); }
       to { opacity: 1; transform: scale(1); }
@@ -147,7 +250,6 @@
       animation: fadeIn 0.2s ease-out;
     }
 
-    /* 网格视图 */
     .icon-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, 90px);
@@ -155,7 +257,6 @@
       padding: 20px;
     }
 
-    /* 滚动条美化 */
     ::-webkit-scrollbar {
       width: 8px;
       height: 8px;
@@ -178,10 +279,35 @@
 <body>
 
   <div id="app">
-    <!-- 桌面环境 -->
-    <div class="desktop fixed inset-0" @click="closeAllMenus">
+    <div class="top-navbar" v-if="showNavbar">
+    <div class="flex items-center gap-2">
+      <button @click="returnToMainCenter" class="navbar-button">
+        <span>🏠</span>
+        <span>返回主控中心</span>
+      </button>
 
-      <!-- 桌面图标区域 -->
+      <div class="navbar-divider"></div>
+
+      <span class="text-white text-sm flex items-center gap-2">
+        <span class="text-green-400">●</span>
+        当前节点: <strong>{{ currentNodeName }}</strong>
+      </span>
+    </div>
+
+    <div class="ml-auto flex items-center gap-3">
+      <button @click="openNodeManagement" class="navbar-button">
+        <span>🔄</span>
+        <span>切换节点</span>
+      </button>
+
+      <button @click="refreshCurrentNode" class="navbar-button">
+        <span>🔃</span>
+        <span>刷新</span>
+      </button>
+    </div>
+  </div>
+    <div :class="['desktop fixed inset-0', { 'desktop-with-navbar': showNavbar }]" @click="closeAllMenus">
+
       <div class="icon-grid p-8">
         <!-- 节点管理 -->
         <div class="desktop-icon" @dblclick="openNodeManagement">
@@ -191,20 +317,28 @@
           <div class="text-white text-xs font-semibold drop-shadow-lg">节点管理</div>
         </div>
 
-        <!-- 内网穿透 -->
-        <div class="desktop-icon" @dblclick="openIntranetAccess">
+        <!-- 空间分配 -->
+        <div class="desktop-icon" @dblclick="openSpaceAllocation">
           <div class="w-16 h-16 mx-auto mb-2 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center text-4xl">
-            🌐
+            📦
           </div>
-          <div class="text-white text-xs font-semibold drop-shadow-lg">内网穿透</div>
+          <div class="text-white text-xs font-semibold drop-shadow-lg">空间分配</div>
         </div>
 
-        <!-- 用户权限设置 -->
+        <!-- 权限设置 -->
         <div class="desktop-icon" @dblclick="openPermissionSettings">
+          <div class="w-16 h-16 mx-auto mb-2 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center text-4xl">
+            🔒
+          </div>
+          <div class="text-white text-xs font-semibold drop-shadow-lg">权限设置</div>
+        </div>
+
+        <!-- 加密管理 -->
+        <div class="desktop-icon" @dblclick="openEncryptionManager">
           <div class="w-16 h-16 mx-auto mb-2 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center text-4xl">
             🔐
           </div>
-          <div class="text-white text-xs font-semibold drop-shadow-lg">权限设置</div>
+          <div class="text-white text-xs font-semibold drop-shadow-lg">加密管理</div>
         </div>
 
         <!-- 纠删码配置 -->
@@ -224,7 +358,6 @@
         </div>
       </div>
 
-      <!-- 窗口容器 -->
       <div v-for="window in windows" :key="window.id"
            :class="['window', { maximized: window.maximized }]"
            :style="window.maximized ? {} : {
@@ -237,7 +370,6 @@
            }"
            @mousedown="focusWindow(window.id)">
 
-        <!-- 窗口标题栏 -->
         <div class="window-header" @mousedown="startDrag($event, window)">
           <div class="flex items-center gap-2">
             <span class="text-2xl">{{ window.icon }}</span>
@@ -250,12 +382,10 @@
           </div>
         </div>
 
-        <!-- 窗口内容 -->
         <div class="window-content" style="padding: 0; overflow: hidden;">
 
           <!-- 节点管理窗口 -->
           <div v-if="window.type === 'nodes'" class="h-full flex flex-col">
-            <!-- 标题栏 -->
             <div class="px-6 py-4 border-b bg-gradient-to-r from-blue-50 to-purple-50">
               <div class="flex justify-between items-center">
                 <div>
@@ -274,7 +404,6 @@
               </div>
             </div>
 
-            <!-- 统计卡片 -->
             <div v-if="window.stats" class="grid grid-cols-4 gap-4 p-6 bg-gray-50">
               <div class="bg-white rounded-lg shadow p-4 border">
                 <div class="flex items-center justify-between">
@@ -314,7 +443,6 @@
               </div>
             </div>
 
-            <!-- 节点列表 -->
             <div class="flex-1 overflow-auto p-6 bg-gray-50">
               <div class="bg-white rounded-lg shadow border">
                 <table class="w-full">
@@ -367,12 +495,16 @@
                       <td class="p-4">
                         <div class="flex gap-2">
                           <button @click="viewNodeDisks(window, node)"
-                                  class="px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600">
+                                  :disabled="node.status === 'offline'"
+                                  :class="node.status === 'offline' ? 'opacity-50 cursor-not-allowed bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'"
+                                  class="px-3 py-1 text-white rounded text-xs">
                             💾 磁盘
                           </button>
-                          <button @click="viewNodeDetail(window, node)"
-                                  class="px-3 py-1 bg-green-500 text-white rounded text-xs hover:bg-green-600">
-                            📊 详情
+                          <button @click="accessNode(node)"
+                                  :disabled="node.status === 'offline'"
+                                  :class="node.status === 'offline' ? 'opacity-50 cursor-not-allowed bg-gray-400' : 'bg-green-500 hover:bg-green-600'"
+                                  class="px-3 py-1 text-white rounded text-xs">
+                            🔗 访问
                           </button>
                         </div>
                       </td>
@@ -382,7 +514,7 @@
               </div>
             </div>
 
-            <!-- 节点磁盘详情弹窗 -->
+            <!-- 磁盘信息弹窗 -->
             <div v-if="window.selectedNodeDisks"
                  @click="window.selectedNodeDisks = null"
                  class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -391,13 +523,21 @@
                   <h3 class="text-xl font-bold">{{ window.selectedNodeDisks.name }} - 磁盘信息</h3>
                 </div>
                 <div class="p-6 overflow-y-auto max-h-[60vh]">
-                  <div class="space-y-4">
+                  <div v-if="window.selectedNodeDisks.loading" class="flex items-center justify-center py-12">
+                    <div class="loading"></div>
+                    <span class="ml-3 text-gray-600">正在加载磁盘信息...</span>
+                  </div>
+                  <div v-else-if="window.selectedNodeDisks.error" class="text-center py-12">
+                    <div class="text-red-500 text-lg mb-2">❌ 加载失败</div>
+                    <div class="text-gray-600">{{ window.selectedNodeDisks.error }}</div>
+                  </div>
+                  <div v-else class="space-y-4">
                     <div v-for="(disk, index) in window.selectedNodeDisks.disks" :key="index"
                          class="border rounded-lg p-4 bg-gray-50">
                       <div class="flex justify-between items-start mb-3">
                         <div>
                           <div class="font-bold text-lg">{{ disk.mount }}</div>
-                          <div class="text-sm text-gray-600">容量: {{ disk.total }} GB</div>
+                          <div class="text-sm text-gray-600">总容量: {{ disk.total_gb }} GB</div>
                         </div>
                         <span v-if="disk.ec_scheme" class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
                           🛡️ {{ disk.ec_scheme }}
@@ -405,14 +545,14 @@
                       </div>
                       <div class="w-full bg-gray-200 rounded-full h-4">
                         <div class="h-4 rounded-full flex items-center justify-center text-xs text-white font-semibold"
-                             :class="disk.usage > 90 ? 'bg-red-500' : disk.usage > 70 ? 'bg-yellow-500' : 'bg-green-500'"
-                             :style="{ width: disk.usage + '%' }">
-                          {{ disk.usage }}%
+                             :class="disk.usage_percent > 90 ? 'bg-red-500' : disk.usage_percent > 70 ? 'bg-yellow-500' : 'bg-green-500'"
+                             :style="{ width: disk.usage_percent + '%' }">
+                          {{ disk.usage_percent.toFixed(1) }}%
                         </div>
                       </div>
                       <div class="flex justify-between text-xs text-gray-600 mt-2">
-                        <span>已用: {{ disk.used }} GB</span>
-                        <span>可用: {{ disk.free }} GB</span>
+                        <span>已用: {{ disk.used_gb }} GB</span>
+                        <span>可用: {{ disk.free_gb }} GB</span>
                       </div>
                     </div>
                   </div>
@@ -427,329 +567,820 @@
             </div>
           </div>
 
-          <!-- 内网穿透窗口 -->
-          <div v-else-if="window.type === 'intranet'" class="h-full flex flex-col overflow-hidden">
-            <div class="px-6 py-4 border-b bg-gradient-to-r from-green-50 to-blue-50">
-              <h3 class="text-xl font-bold flex items-center gap-2">
-                <span class="text-3xl">🌐</span>
-                内网穿透
-              </h3>
-              <p class="text-sm text-gray-600 mt-1">通过穿透服务远程访问内网节点</p>
-            </div>
-
-            <div class="flex-1 overflow-auto p-6">
-              <!-- 穿透状态 -->
-              <div class="bg-white rounded-lg shadow border p-6 mb-6">
-                <h4 class="font-semibold text-lg mb-4">穿透服务状态</h4>
-                <div class="grid grid-cols-3 gap-4">
-                  <div class="bg-green-50 p-4 rounded-lg border border-green-200">
-                    <div class="text-sm text-gray-600 mb-1">服务状态</div>
-                    <div class="text-xl font-bold text-green-600 flex items-center gap-2">
-                      <span class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
-                      运行中
-                    </div>
-                  </div>
-                  <div class="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                    <div class="text-sm text-gray-600 mb-1">活跃连接</div>
-                    <div class="text-xl font-bold text-blue-600">{{ window.activeConnections || 3 }}</div>
-                  </div>
-                  <div class="bg-purple-50 p-4 rounded-lg border border-purple-200">
-                    <div class="text-sm text-gray-600 mb-1">今日流量</div>
-                    <div class="text-xl font-bold text-purple-600">2.3 GB</div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 节点访问列表 -->
-              <div class="bg-white rounded-lg shadow border">
-                <div class="px-6 py-4 border-b">
-                  <h4 class="font-semibold">节点访问列表</h4>
-                </div>
-                <table class="w-full">
-                  <thead class="bg-gray-50 border-b">
-                    <tr>
-                      <th class="text-left p-4 font-semibold text-gray-700">节点名称</th>
-                      <th class="text-left p-4 font-semibold text-gray-700">内网地址</th>
-                      <th class="text-left p-4 font-semibold text-gray-700">外网地址</th>
-                      <th class="text-left p-4 font-semibold text-gray-700">状态</th>
-                      <th class="text-left p-4 font-semibold text-gray-700">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="tunnel in window.tunnels" :key="tunnel.id" class="border-b hover:bg-gray-50">
-                      <td class="p-4">
-                        <div class="font-semibold">{{ tunnel.name }}</div>
-                      </td>
-                      <td class="p-4 text-sm font-mono">{{ tunnel.localAddr }}</td>
-                      <td class="p-4 text-sm font-mono text-blue-600">{{ tunnel.publicAddr }}</td>
-                      <td class="p-4">
-                        <span :class="tunnel.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'"
-                              class="px-3 py-1 rounded-full text-xs font-semibold">
-                          {{ tunnel.active ? '🟢 已连接' : '⚪ 未连接' }}
-                        </span>
-                      </td>
-                      <td class="p-4">
-                        <button @click="openTunnel(tunnel)"
-                                class="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600">
-                          🔗 访问
-                        </button>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <!-- 权限设置窗口 -->
-          <div v-else-if="window.type === 'permission'" class="h-full flex flex-col overflow-hidden">
+          <!-- 空间分配窗口 -->
+          <div v-if="window.type === 'space-allocation'" class="h-full flex flex-col">
             <div class="px-6 py-4 border-b bg-gradient-to-r from-purple-50 to-pink-50">
               <h3 class="text-xl font-bold flex items-center gap-2">
-                <span class="text-3xl">🔐</span>
-                用户权限设置
+                <span class="text-3xl">📦</span>
+                跨节点空间分配
               </h3>
-              <p class="text-sm text-gray-600 mt-1">配置用户对节点和磁盘的访问权限</p>
+              <p class="text-sm text-gray-600 mt-1">将大文件分发到多个节点存储,优化空间利用</p>
             </div>
 
-            <div class="flex-1 overflow-auto p-6">
-              <!-- 节点权限 -->
-              <div class="bg-white rounded-lg shadow border mb-6">
-                <div class="px-6 py-4 border-b">
-                  <h4 class="font-semibold">节点访问权限</h4>
-                </div>
-                <div class="p-6">
-                  <table class="w-full">
-                    <thead class="bg-gray-50">
-                      <tr>
-                        <th class="text-left p-3 font-semibold text-gray-700">节点</th>
-                        <th class="text-center p-3 font-semibold text-gray-700">可见</th>
-                        <th class="text-center p-3 font-semibold text-gray-700">只读</th>
-                        <th class="text-center p-3 font-semibold text-gray-700">读写</th>
-                        <th class="text-center p-3 font-semibold text-gray-700">管理</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="node in window.permissionNodes" :key="node.id" class="border-b">
-                        <td class="p-3">
-                          <div class="font-semibold">{{ node.name }}</div>
-                          <div class="text-xs text-gray-500">{{ node.ip }}</div>
-                        </td>
-                        <td class="p-3 text-center">
-                          <input type="checkbox" v-model="node.permissions.visible" class="w-4 h-4">
-                        </td>
-                        <td class="p-3 text-center">
-                          <input type="radio" :name="'perm-' + node.id" v-model="node.permissions.level" value="readonly" class="w-4 h-4">
-                        </td>
-                        <td class="p-3 text-center">
-                          <input type="radio" :name="'perm-' + node.id" v-model="node.permissions.level" value="readwrite" class="w-4 h-4">
-                        </td>
-                        <td class="p-3 text-center">
-                          <input type="radio" :name="'perm-' + node.id" v-model="node.permissions.level" value="admin" class="w-4 h-4">
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
+            <div class="flex-1 overflow-auto p-6 bg-gray-50">
+              <!-- 分配策略选择 -->
+              <div class="bg-white rounded-lg shadow border p-6 mb-6">
+                <h4 class="font-bold text-lg mb-4">分配策略</h4>
+                <div class="grid grid-cols-3 gap-4">
+                  <div class="border-2 border-blue-500 rounded-lg p-4 cursor-pointer hover:bg-blue-50">
+                    <div class="text-3xl mb-2">⚖️</div>
+                    <div class="font-semibold">负载均衡</div>
+                    <div class="text-xs text-gray-600 mt-1">平均分配到所有节点</div>
+                  </div>
+                  <div class="border-2 border-gray-300 rounded-lg p-4 cursor-pointer hover:bg-gray-50">
+                    <div class="text-3xl mb-2">💾</div>
+                    <div class="font-semibold">空间优先</div>
+                    <div class="text-xs text-gray-600 mt-1">优先使用空间较大的节点</div>
+                  </div>
+                  <div class="border-2 border-gray-300 rounded-lg p-4 cursor-pointer hover:bg-gray-50">
+                    <div class="text-3xl mb-2">⚡</div>
+                    <div class="font-semibold">性能优先</div>
+                    <div class="text-xs text-gray-600 mt-1">优先使用高性能节点</div>
+                  </div>
                 </div>
               </div>
 
-              <!-- 磁盘隐藏设置 -->
-              <div class="bg-white rounded-lg shadow border">
-                <div class="px-6 py-4 border-b">
-                  <h4 class="font-semibold">磁盘可见性设置</h4>
+              <!-- 源文件选择 -->
+              <div class="bg-white rounded-lg shadow border p-6 mb-6">
+                <h4 class="font-bold text-lg mb-4">选择要分配的文件</h4>
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                  <div class="text-6xl mb-4">📁</div>
+                  <p class="text-gray-600 mb-4">选择源节点和文件</p>
+                  <button class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+                    浏览文件
+                  </button>
                 </div>
-                <div class="p-6">
-                  <div class="space-y-4">
-                    <div v-for="disk in window.diskVisibility" :key="disk.id"
-                         class="flex items-center justify-between p-4 bg-gray-50 rounded-lg border">
+
+                <!-- 已选文件列表示例 -->
+                <div class="mt-4 space-y-2">
+                  <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div class="flex items-center gap-3">
+                      <span class="text-2xl">🎬</span>
                       <div>
-                        <div class="font-semibold">{{ disk.node }} - {{ disk.mount }}</div>
-                        <div class="text-sm text-gray-600">{{ disk.size }} GB</div>
+                        <div class="font-semibold">movie_4K.mp4</div>
+                        <div class="text-xs text-gray-500">25.6 GB - 来自节点: NAS-主节点</div>
                       </div>
-                      <label class="flex items-center gap-2 cursor-pointer">
-                        <span class="text-sm">{{ disk.visible ? '🟢 可见' : '🔴 隐藏' }}</span>
-                        <input type="checkbox" v-model="disk.visible" class="w-5 h-5">
-                      </label>
+                    </div>
+                    <button class="text-red-500 hover:text-red-700">✕</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 目标节点选择 -->
+              <div class="bg-white rounded-lg shadow border p-6 mb-6">
+                <h4 class="font-bold text-lg mb-4">选择目标节点 (至少2个)</h4>
+                <div class="space-y-2">
+                  <div class="flex items-center p-3 border-2 border-blue-500 bg-blue-50 rounded-lg">
+                    <input type="checkbox" checked class="mr-3 h-5 w-5">
+                    <div class="flex-1">
+                      <div class="font-semibold">NAS-备份节点</div>
+                      <div class="text-xs text-gray-600">可用空间: 1.2 TB | CPU: 25% | 延迟: 12ms</div>
+                    </div>
+                    <div class="text-green-600 font-semibold">✓ 已选</div>
+                  </div>
+
+                  <div class="flex items-center p-3 border-2 border-blue-500 bg-blue-50 rounded-lg">
+                    <input type="checkbox" checked class="mr-3 h-5 w-5">
+                    <div class="flex-1">
+                      <div class="font-semibold">我的本地节点</div>
+                      <div class="text-xs text-gray-600">可用空间: 800 GB | CPU: 15% | 延迟: 2ms</div>
+                    </div>
+                    <div class="text-green-600 font-semibold">✓ 已选</div>
+                  </div>
+
+                  <div class="flex items-center p-3 border-2 border-gray-300 rounded-lg">
+                    <input type="checkbox" class="mr-3 h-5 w-5">
+                    <div class="flex-1">
+                      <div class="font-semibold">NAS-存档节点</div>
+                      <div class="text-xs text-gray-600">可用空间: 3.5 TB | CPU: 40% | 延迟: 28ms</div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <!-- 保存按钮 -->
-              <div class="mt-6 flex justify-end">
-                <button @click="savePermissions(window)"
-                        class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
-                  💾 保存设置
+              <!-- 分配预览 -->
+              <div class="bg-gradient-to-r from-blue-50 to-purple-50 border-l-4 border-blue-500 p-4 rounded">
+                <h4 class="font-semibold text-blue-900 mb-2">📊 分配预览</h4>
+                <div class="text-sm text-blue-800 space-y-1">
+                  <p>• 文件数量: <strong>1</strong> 个</p>
+                  <p>• 总大小: <strong>25.6 GB</strong></p>
+                  <p>• 目标节点: <strong>2</strong> 个</p>
+                  <p>• 每节点分配: <strong>约 12.8 GB</strong></p>
+                  <p>• 预计耗时: <strong>约 8-12 分钟</strong></p>
+                </div>
+              </div>
+
+              <!-- 执行按钮 -->
+              <div class="mt-6 flex justify-end gap-3">
+                <button class="px-6 py-3 bg-gray-200 rounded-lg hover:bg-gray-300">
+                  取消
+                </button>
+                <button class="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center gap-2">
+                  <span>🚀</span>
+                  开始分配
                 </button>
               </div>
             </div>
           </div>
 
-          <!-- 纠删码配置窗口 -->
-          <div v-else-if="window.type === 'ec'" class="h-full flex flex-col overflow-hidden">
+          <!-- 权限设置窗口 -->
+          <div v-if="window.type === 'permissions'" class="h-full flex flex-col">
             <div class="px-6 py-4 border-b bg-gradient-to-r from-orange-50 to-red-50">
               <h3 class="text-xl font-bold flex items-center gap-2">
-                <span class="text-3xl">🛡️</span>
-                纠删码配置
+                <span class="text-3xl">🔒</span>
+                权限管理
               </h3>
-              <p class="text-sm text-gray-600 mt-1">配置数据保护和冗余策略</p>
+              <p class="text-sm text-gray-600 mt-1">配置用户和节点的访问权限</p>
             </div>
 
-            <div class="flex-1 overflow-auto p-6">
-              <!-- 当前状态 -->
-              <div class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded mb-6">
-                <div class="flex items-start gap-3">
-                  <span class="text-2xl">ℹ️</span>
-                  <div>
-                    <h4 class="font-semibold text-blue-900 mb-1">什么是纠删码?</h4>
-                    <p class="text-sm text-blue-800">纠删码(Erasure Coding)是一种数据保护技术,可以在部分硬盘损坏时恢复数据。配置后,数据会被分散存储在多个硬盘上。</p>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 配置状态 -->
+            <div class="flex-1 overflow-auto p-6 bg-gray-50">
+              <!-- 用户权限管理 -->
               <div class="bg-white rounded-lg shadow border p-6 mb-6">
-                <h4 class="font-semibold text-lg mb-4">当前配置状态</h4>
-                <div v-if="window.ecConfig.isConfigured">
-                  <div class="grid grid-cols-3 gap-4 mb-4">
-                    <div class="bg-green-50 p-4 rounded-lg border border-green-200">
-                      <div class="text-sm text-gray-600 mb-1">配置方案</div>
-                      <div class="text-lg font-bold text-green-700">
-                        Reed-Solomon ({{ window.ecConfig.k }}+{{ window.ecConfig.m }})
-                      </div>
-                    </div>
-                    <div class="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                      <div class="text-sm text-gray-600 mb-1">参与磁盘</div>
-                      <div class="text-lg font-bold text-blue-700">{{ window.ecConfig.diskCount }} 个</div>
-                    </div>
-                    <div :class="window.ecConfig.healthy ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'"
-                         class="p-4 rounded-lg border">
-                      <div class="text-sm text-gray-600 mb-1">系统状态</div>
-                      <div class="text-lg font-bold" :class="window.ecConfig.healthy ? 'text-green-700' : 'text-red-700'">
-                        {{ window.ecConfig.healthy ? '✅ 健康' : '⚠️ 异常' }}
-                      </div>
-                    </div>
-                  </div>
-                  <button @click="reconfigureEC(window)"
-                          class="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600">
-                    ⚙️ 重新配置
+                <div class="flex justify-between items-center mb-4">
+                  <h4 class="font-bold text-lg">用户访问权限</h4>
+                  <button class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+                    + 添加用户
                   </button>
                 </div>
-                <div v-else class="text-center py-8">
-                  <p class="text-gray-500 mb-4">尚未配置纠删码</p>
-                  <button @click="startECConfig(window)"
-                          class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
-                    🚀 开始配置
-                  </button>
+
+                <table class="w-full">
+                  <thead class="bg-gray-50 border-b">
+                    <tr>
+                      <th class="text-left p-3 font-semibold text-gray-700">用户名</th>
+                      <th class="text-left p-3 font-semibold text-gray-700">角色</th>
+                      <th class="text-left p-3 font-semibold text-gray-700">文件权限</th>
+                      <th class="text-left p-3 font-semibold text-gray-700">节点权限</th>
+                      <th class="text-left p-3 font-semibold text-gray-700">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr class="border-b">
+                      <td class="p-3">
+                        <div class="flex items-center gap-2">
+                          <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold">A</div>
+                          <span class="font-semibold">admin</span>
+                        </div>
+                      </td>
+                      <td class="p-3">
+                        <span class="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-semibold">
+                          👑 管理员
+                        </span>
+                      </td>
+                      <td class="p-3">
+                        <span class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
+                          ✓ 完全控制
+                        </span>
+                      </td>
+                      <td class="p-3">
+                        <span class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
+                          ✓ 所有节点
+                        </span>
+                      </td>
+                      <td class="p-3">
+                        <button class="px-3 py-1 bg-gray-300 text-gray-500 rounded text-xs cursor-not-allowed">
+                          系统管理员
+                        </button>
+                      </td>
+                    </tr>
+
+                    <tr class="border-b">
+                      <td class="p-3">
+                        <div class="flex items-center gap-2">
+                          <div class="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white font-bold">U</div>
+                          <span class="font-semibold">user01</span>
+                        </div>
+                      </td>
+                      <td class="p-3">
+                        <span class="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-semibold">
+                          👤 普通用户
+                        </span>
+                      </td>
+                      <td class="p-3">
+                        <select class="px-3 py-1 border rounded text-xs">
+                          <option>只读</option>
+                          <option selected>读写</option>
+                          <option>完全控制</option>
+                        </select>
+                      </td>
+                      <td class="p-3">
+                        <select class="px-3 py-1 border rounded text-xs">
+                          <option selected>本地节点</option>
+                          <option>所有节点</option>
+                          <option>自定义</option>
+                        </select>
+                      </td>
+                      <td class="p-3">
+                        <div class="flex gap-2">
+                          <button class="px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600">
+                            编辑
+                          </button>
+                          <button class="px-3 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600">
+                            删除
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+
+                    <tr class="border-b">
+                      <td class="p-3">
+                        <div class="flex items-center gap-2">
+                          <div class="w-8 h-8 bg-yellow-500 rounded-full flex items-center justify-center text-white font-bold">G</div>
+                          <span class="font-semibold">guest</span>
+                        </div>
+                      </td>
+                      <td class="p-3">
+                        <span class="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-semibold">
+                          👤 访客
+                        </span>
+                      </td>
+                      <td class="p-3">
+                        <select class="px-3 py-1 border rounded text-xs">
+                          <option selected>只读</option>
+                          <option>读写</option>
+                          <option>完全控制</option>
+                        </select>
+                      </td>
+                      <td class="p-3">
+                        <select class="px-3 py-1 border rounded text-xs">
+                          <option selected>无访问</option>
+                          <option>本地节点</option>
+                          <option>所有节点</option>
+                        </select>
+                      </td>
+                      <td class="p-3">
+                        <div class="flex gap-2">
+                          <button class="px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600">
+                            编辑
+                          </button>
+                          <button class="px-3 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600">
+                            删除
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- 权限类型说明 -->
+              <div class="bg-white rounded-lg shadow border p-6 mb-6">
+                <h4 class="font-bold text-lg mb-4">权限说明</h4>
+                <div class="grid grid-cols-3 gap-4">
+                  <div class="border rounded-lg p-4">
+                    <div class="text-3xl mb-2">👁️</div>
+                    <div class="font-semibold mb-1">只读权限</div>
+                    <div class="text-xs text-gray-600">
+                      • 查看文件列表<br>
+                      • 下载文件<br>
+                      • 查看系统信息<br>
+                      • 不能修改或删除
+                    </div>
+                  </div>
+
+                  <div class="border rounded-lg p-4">
+                    <div class="text-3xl mb-2">✏️</div>
+                    <div class="font-semibold mb-1">读写权限</div>
+                    <div class="text-xs text-gray-600">
+                      • 所有只读权限<br>
+                      • 上传文件<br>
+                      • 创建文件夹<br>
+                      • 重命名文件<br>
+                      • 删除自己的文件
+                    </div>
+                  </div>
+
+                  <div class="border rounded-lg p-4">
+                    <div class="text-3xl mb-2">🔓</div>
+                    <div class="font-semibold mb-1">完全控制</div>
+                    <div class="text-xs text-gray-600">
+                      • 所有读写权限<br>
+                      • 删除任何文件<br>
+                      • 修改权限<br>
+                      • 系统配置<br>
+                      • 用户管理
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <!-- 配置向导 -->
-              <div v-if="window.showConfigWizard" class="bg-white rounded-lg shadow border p-6">
-                <h4 class="font-semibold text-lg mb-4">纠删码配置向导</h4>
+              <!-- 节点访问控制 -->
+              <div class="bg-white rounded-lg shadow border p-6">
+                <h4 class="font-bold text-lg mb-4">节点访问控制</h4>
+                <div class="space-y-3">
+                  <div class="flex items-center justify-between p-4 border rounded-lg">
+                    <div class="flex items-center gap-3">
+                      <div class="text-3xl">🖥️</div>
+                      <div>
+                        <div class="font-semibold">我的本地节点</div>
+                        <div class="text-xs text-gray-600">127.0.0.1:5000</div>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs text-gray-600">访问策略:</span>
+                      <select class="px-3 py-1 border rounded text-sm">
+                        <option selected>所有用户</option>
+                        <option>仅管理员</option>
+                        <option>白名单用户</option>
+                        <option>禁止访问</option>
+                      </select>
+                    </div>
+                  </div>
 
-                <!-- 步骤1: 选择方案 -->
-                <div class="mb-6">
-                  <label class="block text-sm font-medium text-gray-700 mb-2">选择纠删码方案</label>
-                  <div class="grid grid-cols-3 gap-4">
-                    <div v-for="scheme in window.ecSchemes" :key="scheme.name"
-                         @click="window.selectedScheme = scheme"
-                         :class="window.selectedScheme?.name === scheme.name ? 'border-blue-500 bg-blue-50' : 'border-gray-200'"
-                         class="border-2 rounded-lg p-4 cursor-pointer hover:border-blue-400 transition">
-                      <div class="font-bold text-lg mb-2">{{ scheme.name }}</div>
-                      <div class="text-sm text-gray-600 mb-2">{{ scheme.description }}</div>
-                      <div class="text-xs text-gray-500">
-                        最多容忍 {{ scheme.m }} 个磁盘故障
+                  <div class="flex items-center justify-between p-4 border rounded-lg">
+                    <div class="flex items-center gap-3">
+                      <div class="text-3xl">🖥️</div>
+                      <div>
+                        <div class="font-semibold">NAS-主节点</div>
+                        <div class="text-xs text-gray-600">192.168.1.100:8000</div>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs text-gray-600">访问策略:</span>
+                      <select class="px-3 py-1 border rounded text-sm">
+                        <option>所有用户</option>
+                        <option selected>仅管理员</option>
+                        <option>白名单用户</option>
+                        <option>禁止访问</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center justify-between p-4 border rounded-lg">
+                    <div class="flex items-center gap-3">
+                      <div class="text-3xl">🖥️</div>
+                      <div>
+                        <div class="font-semibold">NAS-备份节点</div>
+                        <div class="text-xs text-gray-600">192.168.1.101:8000</div>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs text-gray-600">访问策略:</span>
+                      <select class="px-3 py-1 border rounded text-sm">
+                        <option selected>所有用户</option>
+                        <option>仅管理员</option>
+                        <option>白名单用户</option>
+                        <option>禁止访问</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 提示信息 -->
+              <div class="mt-6 bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded">
+                <div class="flex items-start gap-3">
+                  <span class="text-2xl">⚠️</span>
+                  <div class="text-sm text-yellow-800">
+                    <p class="font-semibold mb-1">权限管理注意事项:</p>
+                    <ul class="list-disc list-inside space-y-1">
+                      <li>修改权限后立即生效,请谨慎操作</li>
+                      <li>建议定期审查用户权限,确保安全</li>
+                      <li>至少保留一个管理员账号</li>
+                      <li>访客账号建议仅授予只读权限</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 加密管理窗口 -->
+          <div v-if="window.type === 'encryption'" class="h-full flex flex-col">
+            <div class="px-6 py-4 border-b bg-gradient-to-r from-indigo-50 to-purple-50">
+              <h3 class="text-xl font-bold flex items-center gap-2">
+                <span class="text-3xl">🔐</span>
+                加密管理中心
+              </h3>
+              <p class="text-sm text-gray-600 mt-1">管理磁盘加密和文件加密</p>
+            </div>
+
+            <!-- 标签页 -->
+            <div class="flex border-b bg-gray-50">
+              <button @click="window.encryptionTab = 'disk'"
+                      :class="window.encryptionTab === 'disk' ? 'bg-white border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'"
+                      class="px-6 py-3 font-semibold transition">
+                💾 磁盘加密
+              </button>
+              <button @click="window.encryptionTab = 'file'"
+                      :class="window.encryptionTab === 'file' ? 'bg-white border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'"
+                      class="px-6 py-3 font-semibold transition">
+                📄 文件加密
+              </button>
+            </div>
+
+            <div class="flex-1 overflow-auto p-6 bg-gray-50">
+              <!-- 磁盘加密标签页 -->
+              <div v-if="window.encryptionTab === 'disk'" class="space-y-4">
+                <div class="bg-purple-50 border-l-4 border-purple-500 p-4 rounded">
+                  <div class="flex items-start gap-3">
+                    <span class="text-2xl">💡</span>
+                    <div>
+                      <h4 class="font-semibold text-purple-900 mb-1">全盘加密说明</h4>
+                      <p class="text-sm text-purple-800">
+                        为物理硬盘设置密码,保护数据安全。加密后的硬盘在解锁前无法访问。
+                        服务器重启后所有硬盘将自动锁定,需要输入密码才能访问。
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 磁盘加密状态列表 -->
+                <div class="bg-white rounded-lg shadow border">
+                  <div class="p-4 border-b font-semibold text-gray-700">磁盘加密状态</div>
+                  <div class="space-y-3 p-4">
+                    <!-- 示例磁盘1 - 已加密已解锁 -->
+                    <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
+                      <div class="flex items-center gap-4">
+                        <span class="text-4xl">🔓</span>
+                        <div>
+                          <div class="font-bold font-mono text-lg">D:\</div>
+                          <div class="flex items-center gap-2 mt-1">
+                            <span class="text-xs font-semibold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                              ✓ 已解锁
+                            </span>
+                            <span class="text-xs text-gray-500">容量: 2 TB</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="flex gap-2">
+                        <button class="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600">
+                          🔒 锁定
+                        </button>
+                        <button class="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600">
+                          🔑 改密码
+                        </button>
+                        <button class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600">
+                          🗑️ 移除加密
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- 示例磁盘2 - 已加密已锁定 -->
+                    <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
+                      <div class="flex items-center gap-4">
+                        <span class="text-4xl">🔒</span>
+                        <div>
+                          <div class="font-bold font-mono text-lg">E:\</div>
+                          <div class="flex items-center gap-2 mt-1">
+                            <span class="text-xs font-semibold bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
+                              🔐 已锁定
+                            </span>
+                            <span class="text-xs text-gray-500">容量: 1 TB</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="flex gap-2">
+                        <button class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+                          🔓 解锁
+                        </button>
+                        <button class="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600">
+                          🔑 改密码
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- 示例磁盘3 - 未加密 -->
+                    <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
+                      <div class="flex items-center gap-4">
+                        <span class="text-4xl">💾</span>
+                        <div>
+                          <div class="font-bold font-mono text-lg">F:\</div>
+                          <div class="flex items-center gap-2 mt-1">
+                            <span class="text-xs text-gray-500">未加密</span>
+                            <span class="text-xs text-gray-500">容量: 500 GB</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="flex gap-2">
+                        <button class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600">
+                          🔐 启用加密
+                        </button>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <!-- 步骤2: 选择磁盘 -->
-                <div class="mb-6">
-                  <label class="block text-sm font-medium text-gray-700 mb-2">选择参与的磁盘</label>
+                <!-- 加密统计 -->
+                <div class="grid grid-cols-3 gap-4">
+                  <div class="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-4 rounded-lg shadow">
+                    <div class="text-sm opacity-90 mb-1">总磁盘数</div>
+                    <div class="text-3xl font-bold">3</div>
+                  </div>
+                  <div class="bg-gradient-to-br from-green-500 to-green-600 text-white p-4 rounded-lg shadow">
+                    <div class="text-sm opacity-90 mb-1">已加密</div>
+                    <div class="text-3xl font-bold">2</div>
+                  </div>
+                  <div class="bg-gradient-to-br from-yellow-500 to-yellow-600 text-white p-4 rounded-lg shadow">
+                    <div class="text-sm opacity-90 mb-1">已解锁</div>
+                    <div class="text-3xl font-bold">1</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 文件加密标签页 -->
+              <div v-if="window.encryptionTab === 'file'" class="space-y-4">
+                <div class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
+                  <div class="flex items-start gap-3">
+                    <span class="text-2xl">💡</span>
+                    <div>
+                      <h4 class="font-semibold text-blue-900 mb-1">独立文件加密</h4>
+                      <p class="text-sm text-blue-800">
+                        为单个文件或文件夹设置独立密码。加密后文件名会添加 .encrypted 后缀。
+                        每个文件可以使用不同的密码,互不干扰。
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 加密新文件 -->
+                <div class="bg-white rounded-lg shadow border p-6">
+                  <h4 class="font-bold text-lg mb-4">加密文件/文件夹</h4>
+
+                  <div class="space-y-4">
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-2">选择要加密的内容</label>
+                      <div class="flex gap-2">
+                        <input type="text"
+                               placeholder="请输入文件路径或点击浏览选择"
+                               class="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        <button class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
+                          📁 浏览
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-2">设置加密密码</label>
+                      <input type="password"
+                             placeholder="输入加密密码"
+                             class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-2">确认密码</label>
+                      <input type="password"
+                             placeholder="再次输入密码"
+                             class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+
+                    <button class="w-full bg-blue-500 text-white py-3 rounded-lg font-semibold hover:bg-blue-600">
+                      🔐 开始加密
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 解密文件 -->
+                <div class="bg-white rounded-lg shadow border p-6">
+                  <h4 class="font-bold text-lg mb-4">解密文件/文件夹</h4>
+
+                  <div class="space-y-4">
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-2">选择加密的文件</label>
+                      <div class="flex gap-2">
+                        <input type="text"
+                               placeholder="请选择 .encrypted 文件"
+                               class="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 outline-none">
+                        <button class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
+                          📁 浏览
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-2">输入解密密码</label>
+                      <input type="password"
+                             placeholder="输入原密码"
+                             class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 outline-none">
+                    </div>
+
+                    <button class="w-full bg-green-500 text-white py-3 rounded-lg font-semibold hover:bg-green-600">
+                      🔓 开始解密
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 加密文件列表示例 -->
+                <div class="bg-white rounded-lg shadow border p-6">
+                  <h4 class="font-bold text-lg mb-4">最近加密的文件</h4>
                   <div class="space-y-2">
-                    <div v-for="disk in window.availableDisks" :key="disk.id"
-                         class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border">
-                      <input type="checkbox" v-model="disk.selected" class="w-5 h-5">
-                      <div class="flex-1">
-                        <div class="font-semibold">{{ disk.node }} - {{ disk.mount }}</div>
-                        <div class="text-sm text-gray-600">{{ disk.size }} GB 可用</div>
+                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div class="flex items-center gap-3">
+                        <span class="text-2xl">🔒</span>
+                        <div>
+                          <div class="font-semibold">财务报表.xlsx.encrypted</div>
+                          <div class="text-xs text-gray-500">加密时间: 2025-10-17 14:30</div>
+                        </div>
                       </div>
+                      <button class="px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600">
+                        解密
+                      </button>
+                    </div>
+
+                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div class="flex items-center gap-3">
+                        <span class="text-2xl">🔒</span>
+                        <div>
+                          <div class="font-semibold">机密文件.pdf.encrypted</div>
+                          <div class="text-xs text-gray-500">加密时间: 2025-10-16 09:15</div>
+                        </div>
+                      </div>
+                      <button class="px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600">
+                        解密
+                      </button>
                     </div>
                   </div>
                 </div>
 
-                <!-- 操作按钮 -->
-                <div class="flex justify-end gap-3">
-                  <button @click="window.showConfigWizard = false"
-                          class="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">
-                    取消
-                  </button>
-                  <button @click="applyECConfig(window)"
-                          class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
-                    应用配置
-                  </button>
+                <!-- 安全提示 -->
+                <div class="bg-red-50 border-l-4 border-red-500 p-4 rounded">
+                  <div class="flex items-start gap-3">
+                    <span class="text-2xl">⚠️</span>
+                    <div class="text-sm text-red-800">
+                      <p class="font-semibold mb-1">重要安全提示:</p>
+                      <ul class="list-disc list-inside space-y-1">
+                        <li>请务必记住加密密码,忘记密码将永久无法恢复文件</li>
+                        <li>建议使用强密码(至少8位,包含字母数字符号)</li>
+                        <li>不要在不安全的环境下输入密码</li>
+                        <li>定期备份重要的加密文件</li>
+                      </ul>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
           <!-- 系统监控窗口 -->
-          <div v-else-if="window.type === 'monitor'" class="h-full flex flex-col overflow-hidden">
-            <div class="px-6 py-4 border-b bg-gradient-to-r from-indigo-50 to-blue-50">
-              <h3 class="text-xl font-bold flex items-center gap-2">
-                <span class="text-3xl">📊</span>
-                系统监控
-              </h3>
-              <p class="text-sm text-gray-600 mt-1">实时监控整体系统运行状态</p>
-            </div>
+<div v-if="window.type === 'system-monitor'" class="h-full flex flex-col">
+  <div class="px-6 py-4 border-b bg-gradient-to-r from-green-50 to-teal-50">
+    <h3 class="text-xl font-bold flex items-center gap-2">
+      <span class="text-3xl">📊</span>
+      系统监控
+    </h3>
+    <p class="text-sm text-gray-600 mt-1">实时监控系统硬件状态</p>
+  </div>
 
-            <div class="flex-1 overflow-auto p-6 bg-gray-50">
-              <!-- 总览统计 -->
-              <div class="grid grid-cols-4 gap-4 mb-6">
-                <div class="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-5 rounded-lg shadow">
-                  <div class="text-sm opacity-90 mb-1">总存储容量</div>
-                  <div class="text-3xl font-bold">{{ window.totalStorage }} TB</div>
-                </div>
-                <div class="bg-gradient-to-br from-green-500 to-green-600 text-white p-5 rounded-lg shadow">
-                  <div class="text-sm opacity-90 mb-1">已用容量</div>
-                  <div class="text-3xl font-bold">{{ window.usedStorage }} TB</div>
-                </div>
-                <div class="bg-gradient-to-br from-purple-500 to-purple-600 text-white p-5 rounded-lg shadow">
-                  <div class="text-sm opacity-90 mb-1">平均CPU</div>
-                  <div class="text-3xl font-bold">{{ window.avgCpu }}%</div>
-                </div>
-                <div class="bg-gradient-to-br from-orange-500 to-orange-600 text-white p-5 rounded-lg shadow">
-                  <div class="text-sm opacity-90 mb-1">网络流量</div>
-                  <div class="text-3xl font-bold">{{ window.networkTraffic }} MB/s</div>
-                </div>
-              </div>
+  <div class="flex-1 overflow-auto p-6 bg-gray-50 space-y-4">
+    <!-- CPU温度 -->
+    <div class="grid grid-cols-2 gap-4">
+      <div class="bg-white rounded-lg shadow border p-4">
+        <h4 class="font-semibold mb-3 flex items-center gap-2">
+          <span class="text-2xl">🌡️</span>
+          CPU 温度
+        </h4>
+        <div class="text-4xl font-bold text-orange-600 mb-2">68°C</div>
+        <div class="w-full bg-gray-200 rounded-full h-3">
+          <div class="h-3 rounded-full bg-gradient-to-r from-green-500 to-orange-500" style="width: 68%"></div>
+        </div>
+        <p class="text-xs text-gray-600 mt-2">正常运行温度</p>
+      </div>
 
-              <!-- 实时图表 -->
-              <div class="bg-white rounded-lg shadow border p-6">
-                <h4 class="font-semibold mb-4">性能趋势</h4>
-                <div class="h-64 flex items-center justify-center border-2 border-dashed rounded-lg">
-                  <div class="text-center text-gray-400">
-                    <div class="text-4xl mb-2">📈</div>
-                    <p>图表区域 (可接入真实监控数据)</p>
-                  </div>
-                </div>
-              </div>
-            </div>
+      <div class="bg-white rounded-lg shadow border p-4">
+        <h4 class="font-semibold mb-3 flex items-center gap-2">
+          <span class="text-2xl">🌡️</span>
+          主板温度
+        </h4>
+        <div class="text-4xl font-bold text-green-600 mb-2">45°C</div>
+        <div class="w-full bg-gray-200 rounded-full h-3">
+          <div class="h-3 rounded-full bg-green-500" style="width: 45%"></div>
+        </div>
+        <p class="text-xs text-gray-600 mt-2">温度正常</p>
+      </div>
+    </div>
+
+    <!-- 风扇转速 -->
+    <div class="bg-white rounded-lg shadow border p-4">
+      <h4 class="font-semibold mb-3 flex items-center gap-2">
+        <span class="text-2xl">🌀</span>
+        风扇转速
+      </h4>
+      <div class="grid grid-cols-3 gap-4">
+        <div class="border rounded-lg p-3">
+          <div class="text-xs text-gray-600 mb-1">CPU 风扇</div>
+          <div class="text-2xl font-bold text-blue-600">2450 RPM</div>
+          <div class="text-xs text-green-600 mt-1">✓ 正常</div>
+        </div>
+        <div class="border rounded-lg p-3">
+          <div class="text-xs text-gray-600 mb-1">机箱风扇 1</div>
+          <div class="text-2xl font-bold text-blue-600">1800 RPM</div>
+          <div class="text-xs text-green-600 mt-1">✓ 正常</div>
+        </div>
+        <div class="border rounded-lg p-3">
+          <div class="text-xs text-gray-600 mb-1">机箱风扇 2</div>
+          <div class="text-2xl font-bold text-blue-600">1750 RPM</div>
+          <div class="text-xs text-green-600 mt-1">✓ 正常</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 硬盘温度 -->
+    <div class="bg-white rounded-lg shadow border p-4">
+      <h4 class="font-semibold mb-3 flex items-center gap-2">
+        <span class="text-2xl">💿</span>
+        硬盘温度
+      </h4>
+      <div class="space-y-2">
+        <div class="flex items-center justify-between p-3 bg-gray-50 rounded">
+          <span class="font-mono text-sm">D:\ (SSD)</span>
+          <span class="text-lg font-semibold text-green-600">38°C</span>
+        </div>
+        <div class="flex items-center justify-between p-3 bg-gray-50 rounded">
+          <span class="font-mono text-sm">E:\ (HDD)</span>
+          <span class="text-lg font-semibold text-green-600">42°C</span>
+        </div>
+        <div class="flex items-center justify-between p-3 bg-gray-50 rounded">
+          <span class="font-mono text-sm">F:\ (HDD)</span>
+          <span class="text-lg font-semibold text-orange-600">51°C</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 电源信息 -->
+    <div class="grid grid-cols-2 gap-4">
+      <div class="bg-white rounded-lg shadow border p-4">
+        <h4 class="font-semibold mb-3 flex items-center gap-2">
+          <span class="text-2xl">⚡</span>
+          功耗监控
+        </h4>
+        <div class="text-4xl font-bold text-yellow-600 mb-2">85W</div>
+        <p class="text-xs text-gray-600">当前功耗</p>
+        <div class="mt-3 text-sm text-gray-700">
+          <div class="flex justify-between mb-1">
+            <span>CPU:</span>
+            <span class="font-semibold">35W</span>
           </div>
+          <div class="flex justify-between mb-1">
+            <span>GPU:</span>
+            <span class="font-semibold">15W</span>
+          </div>
+          <div class="flex justify-between">
+            <span>其他:</span>
+            <span class="font-semibold">35W</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-lg shadow border p-4">
+        <h4 class="font-semibold mb-3 flex items-center gap-2">
+          <span class="text-2xl">🔋</span>
+          电压监控
+        </h4>
+        <div class="space-y-2 text-sm">
+          <div class="flex justify-between p-2 bg-gray-50 rounded">
+            <span>+12V</span>
+            <span class="font-semibold text-green-600">12.05V</span>
+          </div>
+          <div class="flex justify-between p-2 bg-gray-50 rounded">
+            <span>+5V</span>
+            <span class="font-semibold text-green-600">5.02V</span>
+          </div>
+          <div class="flex justify-between p-2 bg-gray-50 rounded">
+            <span>+3.3V</span>
+            <span class="font-semibold text-green-600">3.31V</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 网络监控 -->
+    <div class="bg-white rounded-lg shadow border p-4">
+      <h4 class="font-semibold mb-3 flex items-center gap-2">
+        <span class="text-2xl">🌐</span>
+        网络流量
+      </h4>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <div class="text-xs text-gray-600 mb-1">⬇️ 下载速度</div>
+          <div class="text-3xl font-bold text-blue-600">12.5 MB/s</div>
+        </div>
+        <div>
+          <div class="text-xs text-gray-600 mb-1">⬆️ 上传速度</div>
+          <div class="text-3xl font-bold text-green-600">3.2 MB/s</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 运行时间 -->
+    <div class="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border p-4">
+      <h4 class="font-semibold mb-2 flex items-center gap-2">
+        <span class="text-2xl">⏱️</span>
+        系统运行时间
+      </h4>
+      <div class="text-2xl font-bold text-purple-700">15天 8小时 32分钟</div>
+      <p class="text-xs text-gray-600 mt-1">上次启动: 2025-10-02 09:15:30</p>
+    </div>
+  </div>
+</div>
 
         </div>
       </div>
 
-      <!-- 任务栏 -->
       <div class="taskbar">
-        <!-- 开始按钮 -->
-        <div class="taskbar-item">
-          <span class="text-xl">🚀</span>
-          <span class="ml-2 font-semibold">NAS Center</span>
-        </div>
+        <div class="taskbar-item" @click.stop="toggleStartMenu">
+  <span class="text-xl">🚀</span>
+  <span class="ml-2 font-semibold">NAS Center</span>
+</div>
 
-        <!-- 窗口列表 -->
         <div v-for="window in windows.filter(w => !w.minimized)"
              :key="window.id"
              @click="focusWindow(window.id)"
@@ -758,12 +1389,101 @@
           <span class="ml-2">{{ window.title }}</span>
         </div>
 
-        <!-- 右侧信息 -->
         <div class="ml-auto flex items-center gap-4 text-white text-sm">
           <span>⏰ {{ currentTime }}</span>
         </div>
       </div>
 
+       <!-- 👇 在这里添加开始菜单 -->
+      <div v-if="showStartMenu" class="start-menu">
+        <div class="start-menu-header">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-xl font-bold">NAS Center</div>
+              <div class="text-sm opacity-90 mt-1">主控管理中心</div>
+            </div>
+            <div class="text-3xl">🚀</div>
+          </div>
+        </div>
+
+        <div class="start-menu-section">
+          <div class="start-menu-section-title">快速访问</div>
+          <div class="start-menu-item" @click="openNodeManagement; showStartMenu = false">
+            <span class="text-xl">🖥️</span>
+            <div class="flex-1">
+              <div class="font-semibold">节点管理</div>
+              <div class="text-xs opacity-70">管理所有NAS节点</div>
+            </div>
+          </div>
+          <div class="start-menu-item" @click="openSystemMonitor; showStartMenu = false">
+            <span class="text-xl">📊</span>
+            <div class="flex-1">
+              <div class="font-semibold">系统监控</div>
+              <div class="text-xs opacity-70">实时硬件监控</div>
+            </div>
+          </div>
+          <div class="start-menu-item" @click="openSpaceAllocation; showStartMenu = false">
+            <span class="text-xl">📦</span>
+            <div class="flex-1">
+              <div class="font-semibold">空间分配</div>
+              <div class="text-xs opacity-70">跨节点文件分配</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="h-px bg-white/10 my-2"></div>
+
+        <div class="start-menu-section">
+          <div class="start-menu-section-title">安全管理</div>
+          <div class="start-menu-item" @click="openEncryptionManager; showStartMenu = false">
+            <span class="text-xl">🔐</span>
+            <div class="flex-1">
+              <div class="font-semibold">加密管理</div>
+              <div class="text-xs opacity-70">磁盘和文件加密</div>
+            </div>
+          </div>
+          <div class="start-menu-item" @click="openPermissionSettings; showStartMenu = false">
+            <span class="text-xl">🔒</span>
+            <div class="flex-1">
+              <div class="font-semibold">权限设置</div>
+              <div class="text-xs opacity-70">用户访问控制</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="h-px bg-white/10 my-2"></div>
+
+        <div class="start-menu-section">
+          <div class="start-menu-section-title">高级功能</div>
+          <div class="start-menu-item" @click="openECConfig; showStartMenu = false">
+            <span class="text-xl">🛡️</span>
+            <div class="flex-1">
+              <div class="font-semibold">纠删码配置</div>
+              <div class="text-xs opacity-70">数据冗余保护</div>
+            </div>
+          </div>
+          <div class="start-menu-item start-menu-item-disabled">
+            <span class="text-xl">📡</span>
+            <div class="flex-1">
+              <div class="font-semibold">远程同步</div>
+              <div class="text-xs opacity-70">即将推出</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="h-px bg-white/10 my-2"></div>
+
+        <div class="start-menu-section">
+          <div class="start-menu-item" @click="showStartMenu = false">
+            <span class="text-xl">ℹ️</span>
+            <span>关于系统</span>
+          </div>
+          <div class="start-menu-item" @click="showStartMenu = false">
+            <span class="text-xl">❓</span>
+            <span>帮助文档</span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -779,17 +1499,19 @@
           currentTime: '',
           dragWindow: null,
           dragOffset: { x: 0, y: 0 },
-          apiBaseUrl: 'http://localhost:8080'
+          apiBaseUrl: 'http://127.0.0.1:8080',
+          showStartMenu: false,
+    showNavbar: false,
+    currentNodeName: 'NAS Center 主控'
         };
       },
       mounted() {
         this.updateTime();
         setInterval(() => this.updateTime(), 1000);
-
-        // 自动打开节点管理
         this.openNodeManagement();
       },
       methods: {
+
         updateTime() {
           const now = new Date();
           this.currentTime = now.toLocaleTimeString('zh-CN');
@@ -859,9 +1581,8 @@
         },
 
         closeAllMenus() {
-          // 关闭所有弹出菜单
-        },
-
+  this.showStartMenu = false;
+},
         // ============ 节点管理 ============
         openNodeManagement() {
           const win = this.createWindow({
@@ -882,193 +1603,163 @@
           window.loading = true;
           try {
             const nodesRes = await axios.get(`${this.apiBaseUrl}/api/nodes`);
-            window.nodes = nodesRes.data;
-
-            const statsRes = await axios.get(`${this.apiBaseUrl}/api/stats`);
-            window.stats = {
-              total: statsRes.data.total_nodes,
-              online: statsRes.data.online_nodes,
-              offline: statsRes.data.offline_nodes,
-              warning: statsRes.data.warning_nodes
-            };
-          } catch (error) {
-            console.error('加载失败,使用模拟数据');
-            this.loadMockNodesData(window);
-          } finally {
-            window.loading = false;
-          }
-        },
-
-        loadMockNodesData(window) {
-          window.nodes = [
-            { id: "node-1", name: "NAS-主节点", ip: "192.168.1.100", port: 8000, status: "online",
-              cpu_usage: 45.5, memory_usage: 62.3, disk_usage: 78.9, total_storage: 2000,
-              used_storage: 1578, network_speed: 125.6 },
-            { id: "node-2", name: "NAS-备份节点", ip: "192.168.1.101", port: 8000, status: "online",
-              cpu_usage: 23.8, memory_usage: 45.2, disk_usage: 56.4, total_storage: 4000,
-              used_storage: 2256, network_speed: 89.3 },
-            { id: "node-3", name: "NAS-测试节点", ip: "192.168.1.102", port: 8000, status: "warning",
-              cpu_usage: 87.2, memory_usage: 91.5, disk_usage: 45.3, total_storage: 1000,
-              used_storage: 453, network_speed: 45.7 },
-            { id: "node-4", name: "NAS-离线节点", ip: "192.168.1.103", port: 8000, status: "offline",
-              cpu_usage: 0, memory_usage: 0, disk_usage: 0, total_storage: 2000,
-              used_storage: 0, network_speed: 0 }
-          ];
-
-          window.stats = {
-            total: 4,
-            online: 2,
-            offline: 1,
-            warning: 1
-          };
-        },
-
-        refreshNodes(window) {
-          this.loadNodesData(window);
-        },
-
-        viewNodeDisks(window, node) {
-          // 模拟磁盘数据
-          window.selectedNodeDisks = {
-            name: node.name,
-            disks: [
-              { mount: '/mnt/disk1', total: 1000, used: 789, free: 211, usage: 78.9, ec_scheme: 'RS(4+2)' },
-              { mount: '/mnt/disk2', total: 1000, used: 450, free: 550, usage: 45.0, ec_scheme: null },
-              { mount: '/mnt/ec_volume', total: 4000, used: 2340, free: 1660, usage: 58.5, ec_scheme: 'RS(8+4)' }
-            ]
-          };
-        },
-
-        viewNodeDetail(window, node) {
-          alert('查看节点详情: ' + node.name);
-        },
-
-        getStatusClass(status) {
-          const classes = {
-            online: 'bg-green-100 text-green-700 border border-green-300',
-            offline: 'bg-gray-100 text-gray-700 border border-gray-300',
-            warning: 'bg-yellow-100 text-yellow-700 border border-yellow-300'
-          };
-          return classes[status] || classes.offline;
-        },
-
-        getStatusText(status) {
-          const texts = { online: '在线', offline: '离线', warning: '警告' };
-          return texts[status] || '未知';
-        },
-
-        // ============ 内网穿透 ============
-        openIntranetAccess() {
-          this.createWindow({
-            type: 'intranet',
-            title: '内网穿透',
-            icon: '🌐',
-            width: 1000,
-            height: 600,
-            activeConnections: 3,
-            tunnels: [
-              { id: 1, name: 'NAS-主节点', localAddr: '192.168.1.100:8000',
-                publicAddr: 'nas1.example.com:443', active: true },
-              { id: 2, name: 'NAS-备份节点', localAddr: '192.168.1.101:8000',
-                publicAddr: 'nas2.example.com:443', active: true },
-              { id: 3, name: 'NAS-测试节点', localAddr: '192.168.1.102:8000',
-                publicAddr: 'nas3.example.com:443', active: false }
-            ]
-          });
-        },
-
-        openTunnel(tunnel) {
-          window.open('http://' + tunnel.publicAddr, '_blank');
-        },
-
-        // ============ 权限设置 ============
-        openPermissionSettings() {
-          this.createWindow({
-            type: 'permission',
-            title: '权限设置',
-            icon: '🔐',
-            width: 1000,
-            height: 700,
-            permissionNodes: [
-              { id: 'node-1', name: 'NAS-主节点', ip: '192.168.1.100',
-                permissions: { visible: true, level: 'readwrite' } },
-              { id: 'node-2', name: 'NAS-备份节点', ip: '192.168.1.101',
-                permissions: { visible: true, level: 'readonly' } },
-              { id: 'node-3', name: 'NAS-测试节点', ip: '192.168.1.102',
-                permissions: { visible: false, level: 'readonly' } }
-            ],
-            diskVisibility: [
-              { id: 1, node: 'NAS-主节点', mount: '/mnt/disk1', size: 1000, visible: true },
-              { id: 2, node: 'NAS-主节点', mount: '/mnt/disk2', size: 1000, visible: true },
-              { id: 3, node: 'NAS-备份节点', mount: '/mnt/backup', size: 2000, visible: false }
-            ]
-          });
-        },
-
-        savePermissions(window) {
-          alert('权限设置已保存!');
-        },
-
-        // ============ 纠删码配置 ============
-        openECConfig() {
-          this.createWindow({
-            type: 'ec',
-            title: '纠删码配置',
-            icon: '🛡️',
-            width: 1000,
-            height: 700,
-            ecConfig: {
-              isConfigured: true,
-              k: 8,
-              m: 4,
-              diskCount: 12,
-              healthy: true
-            },
-            showConfigWizard: false,
-            selectedScheme: null,
-            ecSchemes: [
-              { name: 'RS(4+2)', description: '4个数据块 + 2个校验块', k: 4, m: 2 },
-              { name: 'RS(8+4)', description: '8个数据块 + 4个校验块', k: 8, m: 4 },
-              { name: 'RS(12+4)', description: '12个数据块 + 4个校验块', k: 12, m: 4 }
-            ],
-            availableDisks: [
-              { id: 1, node: 'NAS-主节点', mount: '/mnt/disk1', size: 1000, selected: false },
-              { id: 2, node: 'NAS-主节点', mount: '/mnt/disk2', size: 1000, selected: false },
-              { id: 3, node: 'NAS-备份节点', mount: '/mnt/disk1', size: 2000, selected: false }
-            ]
-          });
-        },
-
-        startECConfig(window) {
-          window.showConfigWizard = true;
-        },
-
-        reconfigureEC(window) {
-          window.showConfigWizard = true;
-        },
-
-        applyECConfig(window) {
-          alert('纠删码配置已应用!');
-          window.showConfigWizard = false;
-          window.ecConfig.isConfigured = true;
-        },
-
-        // ============ 系统监控 ============
-        openSystemMonitor() {
-          this.createWindow({
-            type: 'monitor',
-            title: '系统监控',
-            icon: '📊',
-            width: 1200,
-            height: 700,
-            totalStorage: 12.5,
-            usedStorage: 8.3,
-            avgCpu: 45.2,
-            networkTraffic: 156.8
-          });
-        }
+window.nodes = nodesRes.data;
+const statsRes = await axios.get(`${this.apiBaseUrl}/api/stats`);
+        window.stats = {
+          total: statsRes.data.total_nodes,
+          online: statsRes.data.online_nodes,
+          offline: statsRes.data.offline_nodes,
+          warning: statsRes.data.warning_nodes
+        };
+      } catch (error) {
+        console.error('加载失败:', error);
+        alert('无法连接到后端 API,请确保 Flask 服务运行在 http://127.0.0.1:8080');
+      } finally {
+        window.loading = false;
       }
-    }).mount('#app');
-  </script>
+    },
+
+    refreshNodes(window) {
+      this.loadNodesData(window);
+    },
+
+    accessNode(node) {
+  const url = `http://${node.ip}:${node.port}`;
+
+  if (node.status === 'offline') {
+    alert(`节点 ${node.name} 当前离线,无法访问`);
+    return;
+  }
+
+  const confirmed = confirm(
+    `访问节点后将在新窗口打开\n顶部导航栏可帮助您返回主控中心\n\n` +
+    `节点名称: ${node.name}\n` +
+    `访问地址: ${url}\n\n` +
+    `是否继续?`
+  );
+
+  if (confirmed) {
+    // 显示导航栏
+    this.showNavbar = true;
+    this.currentNodeName = node.name;
+
+    // 在新窗口打开
+    window.open(url, '_blank');
+  }
+},
+
+    async viewNodeDisks(window, node) {
+      if (node.status === 'offline') {
+        alert(`节点 ${node.name} 当前离线,无法查看磁盘信息`);
+        return;
+      }
+
+      window.selectedNodeDisks = {
+        name: node.name,
+        loading: true,
+        error: null,
+        disks: []
+      };
+
+      try {
+        const response = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/disks`);
+
+        if (response.data.success) {
+          window.selectedNodeDisks.disks = response.data.disks;
+          window.selectedNodeDisks.loading = false;
+        } else {
+          throw new Error(response.data.error || '获取磁盘信息失败');
+        }
+      } catch (error) {
+        console.error('获取磁盘信息失败:', error);
+        window.selectedNodeDisks.error = error.response?.data?.error || error.message || '无法连接到节点';
+        window.selectedNodeDisks.loading = false;
+      }
+    },
+
+    getStatusClass(status) {
+      const classes = {
+        online: 'bg-green-100 text-green-700 border border-green-300',
+        offline: 'bg-gray-100 text-gray-700 border border-gray-300',
+        warning: 'bg-yellow-100 text-yellow-700 border border-yellow-300'
+      };
+      return classes[status] || classes.offline;
+    },
+
+    getStatusText(status) {
+      const texts = { online: '在线', offline: '离线', warning: '警告' };
+      return texts[status] || '未知';
+    },
+
+    // ============ 空间分配 ============
+    openSpaceAllocation() {
+      this.createWindow({
+        type: 'space-allocation',
+        title: '空间分配',
+        icon: '📦',
+        width: 1000,
+        height: 700
+      });
+    },
+
+    // ============ 权限设置 ============
+    openPermissionSettings() {
+      this.createWindow({
+        type: 'permissions',
+        title: '权限管理',
+        icon: '🔒',
+        width: 1100,
+        height: 700
+      });
+    },
+
+    // ============ 加密管理 ============
+    openEncryptionManager() {
+      this.createWindow({
+        type: 'encryption',
+        title: '加密管理',
+        icon: '🔐',
+        width: 1000,
+        height: 700,
+        encryptionTab: 'disk'  // 默认显示磁盘加密标签页
+      });
+    },
+
+    // ============ 纠删码配置 ============
+    openECConfig() {
+      alert('纠删码配置功能开发中...');
+    },
+
+    // ============ 系统监控 ============
+    openSystemMonitor() {
+  this.createWindow({
+    type: 'system-monitor',
+    title: '系统监控',
+    icon: '📊',
+    width: 1000,
+    height: 700
+  });
+  this.showStartMenu = false;
+},
+        toggleStartMenu() {
+  this.showStartMenu = !this.showStartMenu;
+},
+
+returnToMainCenter() {
+  this.showNavbar = false;
+  this.currentNodeName = 'NAS Center 主控';
+  alert('已返回主控中心');
+},
+
+refreshCurrentNode() {
+  alert(`刷新节点: ${this.currentNodeName}`);
+}
+
+  }
+}).mount('#app');
+
+    </script>
 </body>
 </html>
+```
+
