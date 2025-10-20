@@ -1212,164 +1212,103 @@
 
           <!-- 系统监控窗口 -->
 <div v-if="window.type === 'system-monitor'" class="h-full flex flex-col">
-  <div class="px-6 py-4 border-b bg-gradient-to-r from-green-50 to-teal-50">
-    <h3 class="text-xl font-bold flex items-center gap-2">
-      <span class="text-3xl">📊</span>
-      系统监控
-    </h3>
-    <p class="text-sm text-gray-600 mt-1">实时监控系统硬件状态</p>
+  <div v-if="window.monitorView === 'overview'" class="h-full flex flex-col">
+    <div class="px-6 py-4 border-b bg-gradient-to-r from-green-50 to-teal-50">
+      <h3 class="text-xl font-bold flex items-center gap-2">
+        <span class="text-3xl">📊</span>
+        系统监控总览
+      </h3>
+      <p class="text-sm text-gray-600 mt-1">选择一个节点查看详细信息</p>
+    </div>
+    <div class="flex-1 overflow-auto p-6 bg-gray-50">
+      <div v-if="window.loading" class="flex justify-center items-center h-full">
+        <div class="loading"></div> <span class="ml-2 text-gray-600">正在加载节点...</span>
+      </div>
+      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div v-for="node in window.nodes" :key="node.id"
+             @click="selectNodeForMonitor(window, node)"
+             class="bg-white rounded-lg shadow border p-6 cursor-pointer hover:border-blue-500 hover:shadow-lg transition">
+          <div class="flex justify-between items-start">
+            <h4 class="font-bold text-lg mb-4 text-gray-800">{{ node.name }}</h4>
+            <span class="text-3xl">🖥️</span>
+          </div>
+          <div class="space-y-4">
+            <div>
+              <div class="text-xs text-gray-600 mb-1">磁盘容量</div>
+              <div class="w-full bg-gray-200 rounded-full h-4">
+                <div class="h-4 rounded-full flex items-center justify-center text-xs font-semibold"
+                     :class="node.disk_usage > 80 ? 'bg-red-500 text-white' : 'bg-blue-500 text-white'"
+                     :style="{ width: node.disk_usage + '%' }">
+                  {{ node.disk_usage.toFixed(1) }}%
+                </div>
+              </div>
+              <div class="text-xs text-gray-600 mt-1 text-right">
+                {{ node.used_storage }} / {{ node.total_storage }} GB
+              </div>
+            </div>
+            <div>
+              <div class="text-xs text-gray-600 mb-1">CPU 温度</div>
+              <div class="flex items-center gap-2">
+                <span class="text-2xl">🌡️</span>
+                <span class="text-3xl font-bold"
+                      :class="node.cpu_temp > 75 ? 'text-red-600' : 'text-orange-500'">
+                  {{ node.cpu_temp.toFixed(1) }}°C
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <div class="flex-1 overflow-auto p-6 bg-gray-50 space-y-4">
-    <!-- CPU温度 -->
-    <div class="grid grid-cols-2 gap-4">
+  <div v-else-if="window.monitorView === 'detail'" class="h-full flex flex-col">
+  <div class="px-6 py-4 border-b bg-gradient-to-r from-green-50 to-teal-50 flex justify-between items-center">
+    <div>
+      <h3 class="text-xl font-bold flex items-center gap-2">
+        <span class="text-3xl">🖥️</span>
+        {{ window.title }}
+      </h3>
+      <p class="text-sm text-gray-600 mt-1">实时监控系统硬件状态</p>
+    </div>
+    <button @click="returnToMonitorOverview(window)" class="px-4 py-2 bg-white border rounded-lg hover:bg-gray-50 transition">
+      &lt; 返回总览
+    </button>
+  </div>
+  <div v-if="window.loading" class="flex-1 flex justify-center items-center">
+      <div class="loading"></div> <span class="ml-2 text-gray-600">正在加载详细数据...</span>
+  </div>
+  <div v-else-if="window.selectedNodeStats" class="flex-1 overflow-auto p-6 bg-gray-50">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div class="bg-white rounded-lg shadow border p-4">
-        <h4 class="font-semibold mb-3 flex items-center gap-2">
-          <span class="text-2xl">🌡️</span>
-          CPU 温度
+        <h4 class="font-semibold mb-4 text-lg flex items-center gap-2">
+            <span class="text-2xl">🌡️</span> 温度监控
         </h4>
-        <div class="text-4xl font-bold text-orange-600 mb-2">68°C</div>
-        <div class="w-full bg-gray-200 rounded-full h-3">
-          <div class="h-3 rounded-full bg-gradient-to-r from-green-500 to-orange-500" style="width: 68%"></div>
+        <div class="space-y-3">
+          <div v-for="temp in window.selectedNodeStats.temperatures" class="flex justify-between items-center">
+            <span class="text-gray-700">{{ temp.name }}</span>
+            <span class="font-bold text-xl" :class="temp.value > 80 ? 'text-red-600' : 'text-orange-500'">
+              {{ temp.value?.toFixed(1) || 'N/A' }}°C
+            </span>
+          </div>
         </div>
-        <p class="text-xs text-gray-600 mt-2">正常运行温度</p>
       </div>
-
       <div class="bg-white rounded-lg shadow border p-4">
-        <h4 class="font-semibold mb-3 flex items-center gap-2">
-          <span class="text-2xl">🌡️</span>
-          主板温度
+        <h4 class="font-semibold mb-4 text-lg flex items-center gap-2">
+            <span class="text-2xl">💨</span> 风扇转速
         </h4>
-        <div class="text-4xl font-bold text-green-600 mb-2">45°C</div>
-        <div class="w-full bg-gray-200 rounded-full h-3">
-          <div class="h-3 rounded-full bg-green-500" style="width: 45%"></div>
-        </div>
-        <p class="text-xs text-gray-600 mt-2">温度正常</p>
-      </div>
-    </div>
-
-    <!-- 风扇转速 -->
-    <div class="bg-white rounded-lg shadow border p-4">
-      <h4 class="font-semibold mb-3 flex items-center gap-2">
-        <span class="text-2xl">🌀</span>
-        风扇转速
-      </h4>
-      <div class="grid grid-cols-3 gap-4">
-        <div class="border rounded-lg p-3">
-          <div class="text-xs text-gray-600 mb-1">CPU 风扇</div>
-          <div class="text-2xl font-bold text-blue-600">2450 RPM</div>
-          <div class="text-xs text-green-600 mt-1">✓ 正常</div>
-        </div>
-        <div class="border rounded-lg p-3">
-          <div class="text-xs text-gray-600 mb-1">机箱风扇 1</div>
-          <div class="text-2xl font-bold text-blue-600">1800 RPM</div>
-          <div class="text-xs text-green-600 mt-1">✓ 正常</div>
-        </div>
-        <div class="border rounded-lg p-3">
-          <div class="text-xs text-gray-600 mb-1">机箱风扇 2</div>
-          <div class="text-2xl font-bold text-blue-600">1750 RPM</div>
-          <div class="text-xs text-green-600 mt-1">✓ 正常</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 硬盘温度 -->
-    <div class="bg-white rounded-lg shadow border p-4">
-      <h4 class="font-semibold mb-3 flex items-center gap-2">
-        <span class="text-2xl">💿</span>
-        硬盘温度
-      </h4>
-      <div class="space-y-2">
-        <div class="flex items-center justify-between p-3 bg-gray-50 rounded">
-          <span class="font-mono text-sm">D:\ (SSD)</span>
-          <span class="text-lg font-semibold text-green-600">38°C</span>
-        </div>
-        <div class="flex items-center justify-between p-3 bg-gray-50 rounded">
-          <span class="font-mono text-sm">E:\ (HDD)</span>
-          <span class="text-lg font-semibold text-green-600">42°C</span>
-        </div>
-        <div class="flex items-center justify-between p-3 bg-gray-50 rounded">
-          <span class="font-mono text-sm">F:\ (HDD)</span>
-          <span class="text-lg font-semibold text-orange-600">51°C</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- 电源信息 -->
-    <div class="grid grid-cols-2 gap-4">
-      <div class="bg-white rounded-lg shadow border p-4">
-        <h4 class="font-semibold mb-3 flex items-center gap-2">
-          <span class="text-2xl">⚡</span>
-          功耗监控
-        </h4>
-        <div class="text-4xl font-bold text-yellow-600 mb-2">85W</div>
-        <p class="text-xs text-gray-600">当前功耗</p>
-        <div class="mt-3 text-sm text-gray-700">
-          <div class="flex justify-between mb-1">
-            <span>CPU:</span>
-            <span class="font-semibold">35W</span>
-          </div>
-          <div class="flex justify-between mb-1">
-            <span>GPU:</span>
-            <span class="font-semibold">15W</span>
-          </div>
-          <div class="flex justify-between">
-            <span>其他:</span>
-            <span class="font-semibold">35W</span>
+        <div class="space-y-3">
+          <div v-for="fan in window.selectedNodeStats.fans" class="flex justify-between items-center">
+            <span class="text-gray-700">{{ fan.name }}</span>
+            <span class="font-bold text-xl text-blue-600">
+              {{ fan.value?.toFixed(0) || 'N/A' }} RPM
+            </span>
           </div>
         </div>
       </div>
-
-      <div class="bg-white rounded-lg shadow border p-4">
-        <h4 class="font-semibold mb-3 flex items-center gap-2">
-          <span class="text-2xl">🔋</span>
-          电压监控
-        </h4>
-        <div class="space-y-2 text-sm">
-          <div class="flex justify-between p-2 bg-gray-50 rounded">
-            <span>+12V</span>
-            <span class="font-semibold text-green-600">12.05V</span>
-          </div>
-          <div class="flex justify-between p-2 bg-gray-50 rounded">
-            <span>+5V</span>
-            <span class="font-semibold text-green-600">5.02V</span>
-          </div>
-          <div class="flex justify-between p-2 bg-gray-50 rounded">
-            <span>+3.3V</span>
-            <span class="font-semibold text-green-600">3.31V</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 网络监控 -->
-    <div class="bg-white rounded-lg shadow border p-4">
-      <h4 class="font-semibold mb-3 flex items-center gap-2">
-        <span class="text-2xl">🌐</span>
-        网络流量
-      </h4>
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <div class="text-xs text-gray-600 mb-1">⬇️ 下载速度</div>
-          <div class="text-3xl font-bold text-blue-600">12.5 MB/s</div>
-        </div>
-        <div>
-          <div class="text-xs text-gray-600 mb-1">⬆️ 上传速度</div>
-          <div class="text-3xl font-bold text-green-600">3.2 MB/s</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 运行时间 -->
-    <div class="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border p-4">
-      <h4 class="font-semibold mb-2 flex items-center gap-2">
-        <span class="text-2xl">⏱️</span>
-        系统运行时间
-      </h4>
-      <div class="text-2xl font-bold text-purple-700">15天 8小时 32分钟</div>
-      <p class="text-xs text-gray-600 mt-1">上次启动: 2025-10-02 09:15:30</p>
     </div>
   </div>
+</div>
 </div>
 
         </div>
@@ -1487,278 +1426,10 @@
     </div>
   </div>
 
-  <script>
-    const { createApp } = Vue;
+  </div>
 
-    createApp({
-      data() {
-        return {
-          windows: [],
-          nextWindowId: 1,
-          maxZIndex: 100,
-          currentTime: '',
-          dragWindow: null,
-          dragOffset: { x: 0, y: 0 },
-          apiBaseUrl: 'http://127.0.0.1:8080',
-          showStartMenu: false,
-    showNavbar: false,
-    currentNodeName: 'NAS Center 主控'
-        };
-      },
-      mounted() {
-        this.updateTime();
-        setInterval(() => this.updateTime(), 1000);
-        this.openNodeManagement();
-      },
-      methods: {
+  <script src="app.js"></script>
 
-        updateTime() {
-          const now = new Date();
-          this.currentTime = now.toLocaleTimeString('zh-CN');
-        },
-
-        createWindow(config) {
-          const win = {
-            id: this.nextWindowId++,
-            x: 100 + (this.windows.length * 30),
-            y: 50 + (this.windows.length * 30),
-            width: config.width || 900,
-            height: config.height || 600,
-            zIndex: this.maxZIndex++,
-            maximized: false,
-            minimized: false,
-            ...config
-          };
-          this.windows.push(win);
-          return win;
-        },
-
-        closeWindow(id) {
-          const index = this.windows.findIndex(w => w.id === id);
-          if (index !== -1) {
-            this.windows.splice(index, 1);
-          }
-        },
-
-        minimizeWindow(id) {
-          const win = this.windows.find(w => w.id === id);
-          if (win) win.minimized = true;
-        },
-
-        toggleMaximize(id) {
-          const win = this.windows.find(w => w.id === id);
-          if (win) win.maximized = !win.maximized;
-        },
-
-        focusWindow(id) {
-          const win = this.windows.find(w => w.id === id);
-          if (win) {
-            win.minimized = false;
-            win.zIndex = this.maxZIndex++;
-          }
-        },
-
-        startDrag(event, window) {
-          if (window.maximized) return;
-          this.dragWindow = window;
-          this.dragOffset.x = event.clientX - window.x;
-          this.dragOffset.y = event.clientY - window.y;
-
-          document.addEventListener('mousemove', this.onDrag);
-          document.addEventListener('mouseup', this.stopDrag);
-        },
-
-        onDrag(event) {
-          if (!this.dragWindow) return;
-          this.dragWindow.x = event.clientX - this.dragOffset.x;
-          this.dragWindow.y = event.clientY - this.dragOffset.y;
-        },
-
-        stopDrag() {
-          this.dragWindow = null;
-          document.removeEventListener('mousemove', this.onDrag);
-          document.removeEventListener('mouseup', this.stopDrag);
-        },
-
-        closeAllMenus() {
-  this.showStartMenu = false;
-},
-        // ============ 节点管理 ============
-        openNodeManagement() {
-          const win = this.createWindow({
-            type: 'nodes',
-            title: '节点管理',
-            icon: '🖥️',
-            width: 1200,
-            height: 700,
-            nodes: [],
-            stats: null,
-            loading: false,
-            selectedNodeDisks: null
-          });
-          this.loadNodesData(win);
-        },
-
-        async loadNodesData(window) {
-          window.loading = true;
-          try {
-            const nodesRes = await axios.get(`${this.apiBaseUrl}/api/nodes`);
-window.nodes = nodesRes.data;
-const statsRes = await axios.get(`${this.apiBaseUrl}/api/stats`);
-        window.stats = {
-          total: statsRes.data.total_nodes,
-          online: statsRes.data.online_nodes,
-          offline: statsRes.data.offline_nodes,
-          warning: statsRes.data.warning_nodes
-        };
-      } catch (error) {
-        console.error('加载失败:', error);
-        alert('无法连接到后端 API,请确保 Flask 服务运行在 http://127.0.0.1:8080');
-      } finally {
-        window.loading = false;
-      }
-    },
-
-    refreshNodes(window) {
-      this.loadNodesData(window);
-    },
-
-    accessNode(node) {
-  const url = `http://${node.ip}:${node.port}`;
-
-  if (node.status === 'offline') {
-    alert(`节点 ${node.name} 当前离线,无法访问`);
-    return;
-  }
-
-  const confirmed = confirm(
-    `访问节点后将在新窗口打开\n顶部导航栏可帮助您返回主控中心\n\n` +
-    `节点名称: ${node.name}\n` +
-    `访问地址: ${url}\n\n` +
-    `是否继续?`
-  );
-
-  if (confirmed) {
-    // 显示导航栏
-    this.showNavbar = true;
-    this.currentNodeName = node.name;
-
-    // 在新窗口打开
-    window.open(url, '_blank');
-  }
-},
-
-    async viewNodeDisks(window, node) {
-      if (node.status === 'offline') {
-        alert(`节点 ${node.name} 当前离线,无法查看磁盘信息`);
-        return;
-      }
-
-      window.selectedNodeDisks = {
-        name: node.name,
-        loading: true,
-        error: null,
-        disks: []
-      };
-
-      try {
-        const response = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/disks`);
-
-        if (response.data.success) {
-          window.selectedNodeDisks.disks = response.data.disks;
-          window.selectedNodeDisks.loading = false;
-        } else {
-          throw new Error(response.data.error || '获取磁盘信息失败');
-        }
-      } catch (error) {
-        console.error('获取磁盘信息失败:', error);
-        window.selectedNodeDisks.error = error.response?.data?.error || error.message || '无法连接到节点';
-        window.selectedNodeDisks.loading = false;
-      }
-    },
-
-    getStatusClass(status) {
-      const classes = {
-        online: 'bg-green-100 text-green-700 border border-green-300',
-        offline: 'bg-gray-100 text-gray-700 border border-gray-300',
-        warning: 'bg-yellow-100 text-yellow-700 border border-yellow-300'
-      };
-      return classes[status] || classes.offline;
-    },
-
-    getStatusText(status) {
-      const texts = { online: '在线', offline: '离线', warning: '警告' };
-      return texts[status] || '未知';
-    },
-
-    // ============ 空间分配 ============
-    openSpaceAllocation() {
-      this.createWindow({
-        type: 'space-allocation',
-        title: '空间分配',
-        icon: '📦',
-        width: 1000,
-        height: 700
-      });
-    },
-
-    // ============ 权限设置 ============
-    openPermissionSettings() {
-      this.createWindow({
-        type: 'permissions',
-        title: '权限管理',
-        icon: '🔒',
-        width: 1100,
-        height: 700
-      });
-    },
-
-    // ============ 加密管理 ============
-    openEncryptionManager() {
-      this.createWindow({
-        type: 'encryption',
-        title: '加密管理',
-        icon: '🔐',
-        width: 1000,
-        height: 700,
-        encryptionTab: 'disk'  // 默认显示磁盘加密标签页
-      });
-    },
-
-    // ============ 纠删码配置 ============
-    openECConfig() {
-      alert('纠删码配置功能开发中...');
-    },
-
-    // ============ 系统监控 ============
-    openSystemMonitor() {
-  this.createWindow({
-    type: 'system-monitor',
-    title: '系统监控',
-    icon: '📊',
-    width: 1000,
-    height: 700
-  });
-  this.showStartMenu = false;
-},
-        toggleStartMenu() {
-  this.showStartMenu = !this.showStartMenu;
-},
-
-returnToMainCenter() {
-  this.showNavbar = false;
-  this.currentNodeName = 'NAS Center 主控';
-  alert('已返回主控中心');
-},
-
-refreshCurrentNode() {
-  alert(`刷新节点: ${this.currentNodeName}`);
-}
-
-  }
-}).mount('#app');
-
-    </script>
 </body>
 </html>
 ```

@@ -39,33 +39,29 @@ NODES_CONFIG = [
 ]
 
 
+# 文件: 主控中心 app.py
+
+# ... (其他 import 和代码)
+
 def fetch_node_data(node_config, timeout=3):
-    """从真实节点获取数据"""
+    """从真实节点获取数据 - [增强版]"""
     try:
         base_url = f"http://{node_config['ip']}:{node_config['port']}"
 
-        # 1. 获取节点基本信息
-        info_response = requests.get(
-            f"{base_url}/api/node-info",
-            timeout=timeout
-        )
-
+        # 1. 获取节点基本信息 (这部分不变)
+        info_response = requests.get(f"{base_url}/api/node-info", timeout=timeout)
         if info_response.status_code != 200:
             raise Exception("节点信息获取失败")
 
-        # 2. 获取系统统计信息
-        stats_response = requests.get(
-            f"{base_url}/api/system-stats",
-            timeout=timeout
-        )
-
+        # 2. 获取系统统计信息 (这部分不变)
+        stats_response = requests.get(f"{base_url}/api/system-stats", timeout=timeout)
         if stats_response.status_code != 200:
             raise Exception("系统统计获取失败")
 
         info_data = info_response.json()
         stats_data = stats_response.json()
 
-        # 3. 合并数据
+        # 3. 合并数据 (✅ 核心修改在这里)
         return {
             "id": node_config["id"],
             "name": info_data.get("name", node_config["name"]),
@@ -77,7 +73,9 @@ def fetch_node_data(node_config, timeout=3):
             "disk_usage": stats_data.get("disk_percent", 0),
             "total_storage": int(stats_data.get("disk_total_gb", 0)),
             "used_storage": int(stats_data.get("disk_used_gb", 0)),
-            "network_speed": 0,
+            # 👇 [核心修改] 从节点的统计信息中读取 cpu_temp_celsius 字段
+            #    并将其赋值给前端需要的 cpu_temp 字段
+            "cpu_temp": stats_data.get("cpu_temp_celsius", 0),
             "last_updated": datetime.now().isoformat()
         }
 
@@ -93,7 +91,7 @@ def fetch_node_data(node_config, timeout=3):
         print(f"[ERROR] 获取节点 {node_config['name']} 数据失败: {e}")
         return create_offline_node(node_config, "error")
 
-
+# (您文件里的 create_offline_node 函数也需要确保有 cpu_temp 字段)
 def create_offline_node(node_config, reason="unknown"):
     """创建离线节点数据"""
     return {
@@ -107,10 +105,14 @@ def create_offline_node(node_config, reason="unknown"):
         "disk_usage": 0,
         "total_storage": 0,
         "used_storage": 0,
-        "network_speed": 0,
+        # 👇 确保离线时也有默认的温度字段
+        "cpu_temp": 0,
         "last_updated": datetime.now().isoformat(),
         "offline_reason": reason
     }
+
+# ... (您主控中心 app.py 的其他代码)
+
 
 
 @app.route('/')
@@ -143,6 +145,45 @@ def get_all_nodes():
     return jsonify(nodes_data)
 
 
+# 在您的主控中心 app.py 中修改这个路由
+
+# 在您的主控中心 app.py 中找到并替换这个路由函数
+
+# 文件: 主控中心 app.py
+
+@app.route('/api/nodes/<node_id>/monitor-stats', methods=['GET'])
+def get_node_monitor_stats(node_id):
+    """获取单个节点的完整系统监控数据"""
+    node_config = next((config for config in NODES_CONFIG if config['id'] == node_id), None)
+    if not node_config:
+        return jsonify({"error": "节点不存在"}), 404
+
+    try:
+        base_url = f"http://{node_config['ip']}:{node_config['port']}"
+        response = requests.get(f"{base_url}/api/system", timeout=5)
+
+        # 检查节点是否返回了成功的状态码
+        if response.status_code == 200:
+            return jsonify(response.json())
+        else:
+            # 如果节点返回了错误（比如500），我们解析它的错误信息并返回给前端
+            error_details = response.json().get('error', '未知节点错误')
+            return jsonify({
+                "error": f"从节点获取监控数据失败: {error_details} (状态码: {response.status_code})"
+            }), 500
+
+    except requests.exceptions.RequestException as e:
+        # 捕获所有 requests 相关的异常 (如连接超时, 无法解析主机等)
+        print(f"[ERROR] 请求节点 {node_config['name']} 失败: {e}")
+        return jsonify({
+            "error": f"请求节点失败，请确保节点客户端正在运行且网络通畅。错误: {str(e)}"
+        }), 500
+    except Exception as e:
+        # 捕获其他所有可能的未知错误
+        print(f"[ERROR] 处理节点 {node_config['name']} 数据时发生未知错误: {e}")
+        return jsonify({
+            "error": f"处理节点数据时发生未知错误: {str(e)}"
+        }), 500
 @app.route('/api/nodes/<node_id>', methods=['GET'])
 def get_node(node_id):
     """获取指定 NAS 节点的真实数据"""
