@@ -1,8 +1,10 @@
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request, send_file, session, redirect
 from flask_cors import CORS
 from datetime import datetime
 import os
 import requests
+import sqlite3, json, time
+
 
 # ✅ 获取项目根目录(nascenter 文件夹)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -11,7 +13,8 @@ FRONTEND_DIR = os.path.join(BASE_DIR, 'frontend')
 app = Flask(__name__,
             static_folder=FRONTEND_DIR,  # ✅ 指向 frontend 文件夹
             static_url_path='')  # ✅ 静态文件路径为根路径
-CORS(app)
+CORS(app, supports_credentials=True)  # ← 修改这里,支持凭证
+app.secret_key = 'your-secret-key-change-this-in-production'  # ← 添加密钥
 
 # 节点配置列表
 NODES_CONFIG = [
@@ -113,25 +116,163 @@ def create_offline_node(node_config, reason="unknown"):
 
 # ... (您主控中心 app.py 的其他代码)
 
+def init_db():
+    conn = sqlite3.connect('nas_center.db')
+    cursor = conn.cursor()
+
+    # 👇 新增：创建用户表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL,
+            email TEXT,
+            node_access TEXT DEFAULT '{"type":"all","allowed_groups":[],"allowed_nodes":[],"denied_nodes":[]}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_login TIMESTAMP,
+            status TEXT DEFAULT 'active'
+        )
+    ''')
+
+    # 👇 新增：创建节点分组表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS node_groups (
+            group_id TEXT PRIMARY KEY,
+            group_name TEXT NOT NULL,
+            description TEXT,
+            node_ids TEXT NOT NULL,
+            color TEXT DEFAULT '#3b82f6',
+            icon TEXT DEFAULT '📁',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # 👇 新增：插入默认管理员
+    cursor.execute('''
+            INSERT OR IGNORE INTO users (username, password_hash, role, email)
+            VALUES ('admin', '123', 'admin', 'admin@nas.local')
+        ''')
+
+    # 👇 新增：插入默认分组
+    groups_data = [
+        ('group_core', '核心服务器组', '生产环境', '["node-1","node-2"]', '#ef4444', '🔥'),
+        ('group_local', '本地节点组', '测试开发', '["node-5"]', '#8b5cf6', '🏠')
+    ]
+
+    for group_data in groups_data:
+        cursor.execute('''
+               INSERT OR IGNORE INTO node_groups 
+               (group_id, group_name, description, node_ids, color, icon)
+               VALUES (?, ?, ?, ?, ?, ?)
+           ''', group_data)
+
+    conn.commit()
+    conn.close()
 
 
 @app.route('/')
 def index():
-    """根路由 - 返回前端页面"""
-    html_path = os.path.join(FRONTEND_DIR, '1.html')
+    """根路由 - 检查登录状态"""
+    # 如果未登录,返回登录页面
+    if 'user_id' not in session:
+        login_path = os.path.join(FRONTEND_DIR, 'login.html')
+        if os.path.exists(login_path):
+            return send_file(login_path)
+        else:
+            return jsonify({"error": "登录页面未找到"}), 404
 
+    # 如果已登录,返回主界面
+    html_path = os.path.join(FRONTEND_DIR, '1.html')
     if os.path.exists(html_path):
         return send_file(html_path)
     else:
+        return jsonify({"error": "主页面未找到"}), 404
+
+
+# ========== 登录相关 API ==========
+
+@app.route('/api/login', methods=['POST'])
+def login():
+    """用户登录"""
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+
+    if not username or not password:
+        return jsonify({"success": False, "message": "用户名和密码不能为空"}), 400
+
+    # 查询数据库
+    conn = sqlite3.connect('nas_center.db')
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM users WHERE username = ? AND status = "active"', (username,))
+    user = cursor.fetchone()
+    conn.close()
+
+    # 验证密码
+    if user and user['password_hash'] == password:
+        # 登录成功,保存到 session
+        session['user_id'] = user['id']
+        session['username'] = user['username']
+        session['role'] = user['role']
+
+        # 更新最后登录时间
+        conn = sqlite3.connect('nas_center.db')
+        cursor = conn.cursor()
+        cursor.execute('UPDATE users SET last_login = ? WHERE id = ?',
+                       (datetime.now().isoformat(), user['id']))
+        conn.commit()
+        conn.close()
+
         return jsonify({
-            "message": "NAS Center API",
-            "version": "1.0.0",
-            "error": "前端页面未找到",
-            "expected_path": html_path,
-            "note": "请确保 frontend/1.html 文件存在"
-        }), 404
+            "success": True,
+            "message": "登录成功",
+            "user": {
+                "id": user['id'],
+                "username": user['username'],
+                "role": user['role'],
+                "email": user['email']
+            }
+        })
+    else:
+        return jsonify({"success": False, "message": "用户名或密码错误"}), 401
 
 
+@app.route('/api/logout', methods=['POST'])
+def logout():
+    """用户登出"""
+    session.clear()
+    return jsonify({"success": True, "message": "已退出登录"})
+
+
+@app.route('/api/check-auth', methods=['GET'])
+def check_auth():
+    """检查登录状态"""
+    if 'user_id' in session:
+        return jsonify({
+            "authenticated": True,
+            "user": {
+                "id": session['user_id'],
+                "username": session['username'],
+                "role": session['role']
+            }
+        })
+    else:
+        return jsonify({"authenticated": False}), 401
+
+
+# 登录检查装饰器
+def login_required(f):
+    """要求登录的装饰器"""
+    from functools import wraps
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return jsonify({"error": "未登录,请先登录"}), 401
+        return f(*args, **kwargs)
+
+    return decorated_function
 @app.route('/api/nodes', methods=['GET'])
 def get_all_nodes():
     """获取所有 NAS 节点的真实数据"""
@@ -145,9 +286,163 @@ def get_all_nodes():
     return jsonify(nodes_data)
 
 
-# 在您的主控中心 app.py 中修改这个路由
+# ========== 用户管理 API ==========
+@app.route('/api/users', methods=['GET'])
+def get_users():
+    conn = sqlite3.connect('nas_center.db')
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, username, role, email, node_access, status FROM users')
+    users = [dict(row) for row in cursor.fetchall()]
+    conn.close()
 
-# 在您的主控中心 app.py 中找到并替换这个路由函数
+    # 解析 node_access JSON
+    for user in users:
+        user['node_access'] = json.loads(user['node_access'])
+
+    return jsonify(users)
+
+
+@app.route('/api/users', methods=['POST'])
+def create_user():
+    data = request.json
+    conn = sqlite3.connect('nas_center.db')
+    cursor = conn.cursor()
+
+    # 这里简化处理，实际应该用 bcrypt
+    cursor.execute('''
+        INSERT INTO users (username, password_hash, role, email)
+        VALUES (?, ?, ?, ?)
+    ''', (data['username'], data['password'], data['role'], data.get('email', '')))
+
+    conn.commit()
+    new_id = cursor.lastrowid
+    conn.close()
+    return jsonify({"success": True, "user_id": new_id})
+
+
+@app.route('/api/users/<int:user_id>', methods=['PUT'])
+def update_user(user_id):
+    data = request.json
+    conn = sqlite3.connect('nas_center.db')
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        UPDATE users SET role = ?, email = ?, status = ?
+        WHERE id = ?
+    ''', (data['role'], data.get('email', ''), data.get('status', 'active'), user_id))
+
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+def delete_user(user_id):
+    conn = sqlite3.connect('nas_center.db')
+    cursor = conn.cursor()
+    cursor.execute('UPDATE users SET status = "deleted" WHERE id = ?', (user_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+# ========== 节点分组 API ==========
+@app.route('/api/node-groups', methods=['GET'])
+def get_node_groups():
+    conn = sqlite3.connect('nas_center.db')
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM node_groups')
+    groups = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    # 解析 node_ids JSON
+    for group in groups:
+        group['node_ids'] = json.loads(group['node_ids'])
+
+    return jsonify(groups)
+
+
+# ❌ 缺少这个接口
+@app.route('/api/users/<int:user_id>/node-access', methods=['GET'])
+def get_user_node_access(user_id):
+    conn = sqlite3.connect('nas_center.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT node_access FROM users WHERE id = ?', (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if row:
+        return jsonify(json.loads(row[0]))
+    else:
+        return jsonify({"error": "用户不存在"}), 404
+
+@app.route('/api/audit-logs', methods=['GET'])
+def get_audit_logs():
+    # 简化版:返回空数组
+    return jsonify([])
+
+@app.route('/api/node-groups', methods=['POST'])
+def create_node_group():
+    data = request.json
+    group_id = f"group_{int(time.time())}"
+
+    conn = sqlite3.connect('nas_center.db')
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        INSERT INTO node_groups (group_id, group_name, description, node_ids, color, icon)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (group_id, data['group_name'], data.get('description', ''),
+          json.dumps(data['node_ids']), data.get('color', '#3b82f6'), data.get('icon', '📁')))
+
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "group_id": group_id})
+
+
+@app.route('/api/node-groups/<group_id>', methods=['PUT'])
+def update_node_group(group_id):
+    data = request.json
+    conn = sqlite3.connect('nas_center.db')
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        UPDATE node_groups 
+        SET group_name=?, description=?, node_ids=?, color=?, icon=?
+        WHERE group_id=?
+    ''', (data['group_name'], data.get('description', ''), json.dumps(data['node_ids']),
+          data.get('color', '#3b82f6'), data.get('icon', '📁'), group_id))
+
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route('/api/node-groups/<group_id>', methods=['DELETE'])
+def delete_node_group(group_id):
+    conn = sqlite3.connect('nas_center.db')
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM node_groups WHERE group_id = ?', (group_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+# ========== 用户节点访问权限 API ==========
+@app.route('/api/users/<int:user_id>/node-access', methods=['PUT'])
+def update_user_node_access(user_id):
+    data = request.json
+    conn = sqlite3.connect('nas_center.db')
+    cursor = conn.cursor()
+
+    cursor.execute('UPDATE users SET node_access = ? WHERE id = ?',
+                   (json.dumps(data), user_id))
+
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
 
 # 文件: 主控中心 app.py
 
@@ -308,5 +603,5 @@ if __name__ == '__main__':
     print("=" * 50)
     print("💡 本地节点: http://127.0.0.1:5000")
     print("=" * 50)
-
+    init_db()
     app.run(host='0.0.0.0', port=8080, debug=True)
