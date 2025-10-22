@@ -1,10 +1,249 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>$Title$</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 - NAS Center</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+  <style>
+    body {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    .login-container {
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      overflow: hidden;
+      width: 100%;
+      max-width: 400px;
+      animation: slideIn 0.3s ease-out;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .error-message {
+      background: #fee;
+      color: #c33;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .error-message.show {
+      display: block;
+      animation: shake 0.3s;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-10px); }
+      75% { transform: translateX(10px); }
+    }
+
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(255,255,255,.3);
+      border-radius: 50%;
+      border-top-color: white;
+      animation: spin 1s ease-in-out infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
 </head>
 <body>
-$END$
+
+  <div class="login-container">
+    <div class="bg-gradient-to-r from-blue-500 to-purple-600 text-white p-8 text-center">
+      <div class="text-5xl mb-3">🚀</div>
+      <h1 class="text-2xl font-bold">NAS Center</h1>
+      <p class="text-sm opacity-90 mt-2" id="loginTypeText">主控管理中心</p>
+    </div>
+
+    <div class="p-8">
+      <div id="errorMessage" class="error-message">
+        <span id="errorText">错误信息</span>
+      </div>
+
+      <form id="loginForm">
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-2">用户名</label>
+          <input type="text"
+                 id="username"
+                 required
+                 placeholder="请输入用户名"
+                 class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition">
+        </div>
+
+        <div class="mb-6">
+          <label class="block text-sm font-medium text-gray-700 mb-2">密码</label>
+          <input type="password"
+                 id="password"
+                 required
+                 placeholder="请输入密码"
+                 class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition">
+        </div>
+
+        <button type="submit"
+                id="loginButton"
+                class="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white py-3 rounded-lg font-semibold hover:from-blue-600 hover:to-purple-700 transition flex items-center justify-center">
+          <span id="loginButtonText">登录</span>
+          <span id="loginLoading" class="loading ml-2" style="display: none;"></span>
+        </button>
+      </form>
+    </div>
+
+    <div class="bg-gray-50 px-8 py-4 text-center text-xs text-gray-500 border-t">
+      © 2025 NAS Center. All rights reserved.
+    </div>
+  </div>
+
+  <script>
+    axios.defaults.withCredentials = true;
+    const apiBaseUrl = 'http://127.0.0.1:8080';
+
+    const loginForm = document.getElementById('loginForm');
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+    const loginButton = document.getElementById('loginButton');
+    const loginButtonText = document.getElementById('loginButtonText');
+    const loginLoading = document.getElementById('loginLoading');
+    const errorMessage = document.getElementById('errorMessage');
+    const errorText = document.getElementById('errorText');
+    const loginTypeText = document.getElementById('loginTypeText');
+
+    // 🔍 检查 URL 参数,判断登录场景
+    const urlParams = new URLSearchParams(window.location.search);
+    const redirectType = urlParams.get('redirect');  // 'client' 表示来自客户端
+    const nodeId = urlParams.get('node_id') || 'node-5';  // 默认本地节点
+
+    // 根据场景显示不同的提示
+    if (redirectType === 'client') {
+      loginTypeText.textContent = '客户端访问认证';
+    } else {
+      loginTypeText.textContent = '主控管理中心';
+    }
+
+    function showError(message) {
+      errorText.textContent = message;
+      errorMessage.classList.add('show');
+      setTimeout(() => {
+        errorMessage.classList.remove('show');
+      }, 3000);
+    }
+
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value;
+
+      if (!username || !password) {
+        showError('请输入用户名和密码');
+        return;
+      }
+
+      loginButton.disabled = true;
+      loginButtonText.textContent = '登录中...';
+      loginLoading.style.display = 'inline-block';
+
+      try {
+        // 1. 先登录
+        const loginResponse = await axios.post(`${apiBaseUrl}/api/login`, {
+          username: username,
+          password: password
+        });
+
+        if (!loginResponse.data.success) {
+          showError(loginResponse.data.message || '登录失败');
+          loginButton.disabled = false;
+          loginButtonText.textContent = '登录';
+          loginLoading.style.display = 'none';
+          return;
+        }
+
+        // 2. 登录成功后,根据场景决定跳转目标
+        if (redirectType === 'client') {
+          // ✅ 场景2: 来自客户端 → 生成令牌后跳转回客户端
+          loginButtonText.textContent = '正在跳转到客户端...';
+
+          const tokenResponse = await axios.post(`${apiBaseUrl}/api/generate-node-access-token`, {
+            node_id: nodeId
+          });
+
+          if (tokenResponse.data.success) {
+            const token = tokenResponse.data.token;
+
+            // 跳转到客户端桌面,携带访问令牌
+            window.location.href = `http://127.0.0.1:5000/desktop?token=${token}`;
+          } else {
+            showError('生成访问令牌失败');
+            loginButton.disabled = false;
+            loginButtonText.textContent = '登录';
+            loginLoading.style.display = 'none';
+          }
+        } else {
+          // ✅ 场景1: 首次登录管理端 → 跳转到管理端首页
+          loginButtonText.textContent = '正在跳转到管理中心...';
+          window.location.href = '/';
+        }
+
+      } catch (error) {
+        console.error('登录错误:', error);
+        const message = error.response?.data?.message || '登录失败,请检查网络连接';
+        showError(message);
+        loginButton.disabled = false;
+        loginButtonText.textContent = '登录';
+        loginLoading.style.display = 'none';
+      }
+    });
+
+    async function checkAuth() {
+      try {
+        const response = await axios.get(`${apiBaseUrl}/api/check-auth`);
+        if (response.data.authenticated) {
+          // 已登录
+          if (redirectType === 'client') {
+            // 如果是从客户端来的,直接生成令牌跳转
+            const tokenResponse = await axios.post(`${apiBaseUrl}/api/generate-node-access-token`, {
+              node_id: nodeId
+            });
+            if (tokenResponse.data.success) {
+              window.location.href = `http://127.0.0.1:5000/desktop?token=${tokenResponse.data.token}`;
+            }
+          } else {
+            // 否则跳转到管理端首页
+            window.location.href = '/';
+          }
+        }
+      } catch (error) {
+        // 未登录,停留在登录页
+      }
+    }
+
+    checkAuth();
+  </script>
+
 </body>
 </html>

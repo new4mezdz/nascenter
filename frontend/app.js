@@ -1,3 +1,5 @@
+// 配置 axios 默认设置
+axios.defaults.withCredentials = true;
 const { createApp } = Vue;
 
     createApp({
@@ -12,13 +14,16 @@ const { createApp } = Vue;
           apiBaseUrl: 'http://127.0.0.1:8080',
           showStartMenu: false,
     showNavbar: false,
-    currentNodeName: 'NAS Center 主控'
+    currentNodeName: 'NAS Center 主控',
+          currentUser: null,  // 当前登录用户
+showUserMenu: false, // 用户菜单显示状态
         };
       },
       mounted() {
         this.updateTime();
         setInterval(() => this.updateTime(), 1000);
         this.openNodeManagement();
+        this.checkAuth();
       },
       methods: {
 
@@ -133,28 +138,48 @@ const statsRes = await axios.get(`${this.apiBaseUrl}/api/stats`);
       this.loadNodesData(window);
     },
 
-    accessNode(node) {
-  const url = `http://${node.ip}:${node.port}`;
+    // nascenter/frontend/app.js
 
+
+
+async accessNode(node) {
   if (node.status === 'offline') {
     alert(`节点 ${node.name} 当前离线,无法访问`);
     return;
   }
 
-  const confirmed = confirm(
-    `访问节点后将在新窗口打开\n顶部导航栏可帮助您返回主控中心\n\n` +
-    `节点名称: ${node.name}\n` +
-    `访问地址: ${url}\n\n` +
-    `是否继续?`
-  );
+  try {
+    // 🔥 1. 向管理端请求生成访问令牌
+    const response = await axios.post(`${this.apiBaseUrl}/api/generate-node-access-token`, {
+      node_id: node.id
+    });
 
-  if (confirmed) {
-    // 显示导航栏
-    this.showNavbar = true;
-    this.currentNodeName = node.name;
+    if (response.data.success) {
+      const token = response.data.token;
 
-    // 在新窗口打开
-    window.open(url, '_blank');
+      // 🔥 2. 构建客户端访问 URL (携带 token)
+      // ⚠️ 修正:需要添加 /desktop 路径
+      const clientUrl = `http://${node.ip}:${node.port}/desktop?token=${token}`;
+
+      // 🔥 3. 在新标签页打开客户端
+      const confirmed = confirm(
+        `🔐 即将访问节点\n\n` +
+        `节点名称: ${node.name}\n` +
+        `访问地址: http://${node.ip}:${node.port}\n` +
+        `您的权限: ${response.data.file_permission || '只读'}\n\n` +
+        `⏰ 访问令牌有效期: 1 小时\n\n` +
+        `是否继续?`
+      );
+
+      if (confirmed) {
+        window.open(clientUrl, '_blank');
+      }
+    } else {
+      alert(`❌ 生成访问令牌失败: ${response.data.error}`);
+    }
+  } catch (error) {
+    console.error('生成访问令牌失败:', error);
+    alert('❌ 生成访问令牌失败: ' + (error.response?.data?.error || error.message));
   }
 },
 
@@ -214,14 +239,61 @@ const statsRes = await axios.get(`${this.apiBaseUrl}/api/stats`);
 
     // ============ 权限设置 ============
     openPermissionSettings() {
-      this.createWindow({
+      const win = this.createWindow({
         type: 'permissions',
         title: '权限管理',
         icon: '🔒',
         width: 1100,
-        height: 700
+        height: 700,
+        users: [],
+    nodes: [],
+    groups: [],
+    nodePolicies: {}, // 用于存储节点访问策略
+    loading: true
       });
+      this.loadPermissionData(win);
     },
+
+
+async loadPermissionData(window) {
+  window.loading = true;
+  try {
+    const [usersRes, nodesRes, groupsRes, policiesRes] = await Promise.all([ // ⬅️ 在这里添加 policiesRes
+  axios.get(`${this.apiBaseUrl}/api/users`),
+  axios.get(`${this.apiBaseUrl}/api/nodes`),
+  axios.get(`${this.apiBaseUrl}/api/node-groups`),
+  axios.get(`${this.apiBaseUrl}/api/node-policies`)
+]);
+
+    window.users = usersRes.data;
+    window.nodes = nodesRes.data;
+    window.groups = groupsRes.data;
+    window.nodePolicies = policiesRes.data;
+
+  } catch (error) {
+    console.error('加载权限数据失败:', error);
+    alert('加载权限数据失败');
+  } finally {
+    window.loading = false;
+  }
+},
+
+// 用于保存 "角色" 和 "文件权限"
+async updateUserPermissions(user) {
+  try {
+    await axios.put(`${this.apiBaseUrl}/api/users/${user.id}`, {
+      role: user.role,
+      email: user.email, // 确保其他数据也一并提交
+      status: user.status,
+      file_permission: user.file_permission // 提交新字段
+    });
+    // 可以在这里加一个小的成功提示
+  } catch (error) {
+    console.error('更新用户权限失败:', error);
+    alert('更新失败');
+  }
+},
+
 
     // ============ 加密管理 ============
     openEncryptionManager() {
@@ -240,7 +312,7 @@ const statsRes = await axios.get(`${this.apiBaseUrl}/api/stats`);
       alert('纠删码配置功能开发中...');
     },
 
-    // ============ 系统监控 ============
+
     // ============ 系统监控 ============
 openSystemMonitor() {
   const win = this.createWindow({
@@ -260,7 +332,122 @@ openSystemMonitor() {
   this.showStartMenu = false;
 },
 
-        async loadMonitorOverview(window) {
+
+// ... (在 openSystemMonitor 方法之后) ...
+
+// [新] 打开文件管理器
+openFileExplorer() {
+  const win = this.createWindow({
+    type: 'file-explorer',
+    title: '文件管理器',
+    icon: '🗂️',
+    width: 900,
+    height: 600,
+    // 窗口状态
+    loading: true,
+    nodes: [], // 用于节点选择
+    selectedNodeId: null, // 当前选择的节点
+    currentPath: '/',
+    files: [],
+    error: null
+  });
+  // 加载节点列表, 然后加载文件
+  this.loadNodesForFileExplorer(win);
+},
+
+// [新] 为文件管理器加载节点列表 (复用 /api/nodes 接口)
+async loadNodesForFileExplorer(window) {
+    window.loading = true;
+    try {
+        // 复用您已有的 /api/nodes 接口
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes`);
+        // 我们只显示在线的节点
+        window.nodes = res.data.filter(n => n.status === 'online');
+
+        if (window.nodes.length > 0) {
+            // 自动选择第一个在线节点
+            window.selectedNodeId = window.nodes[0].id;
+            // 加载根目录文件
+            await this.loadFiles(window, '/');
+        } else {
+            window.error = "没有在线的节点";
+            window.loading = false;
+        }
+    } catch (e) {
+        window.error = "加载节点列表失败";
+        window.loading = false;
+    }
+},
+
+// [新] 加载文件列表 (调用我们的新网关API)
+async loadFiles(window, path) {
+    window.loading = true;
+    window.error = null;
+    window.currentPath = path;
+    try {
+        // 调用 app.py 中新的 /api/files/.../list 接口
+        const res = await axios.get(`${this.apiBaseUrl}/api/files/${window.selectedNodeId}/list`, {
+            params: { path: path }
+        });
+        window.files = res.data.files;
+    } catch (error) {
+        console.error("加载文件列表失败:", error);
+        // 这将显示来自 app.py 的 "权限不足" 错误
+        window.error = error.response?.data?.message || "加载文件列表失败";
+    } finally {
+        window.loading = false;
+    }
+},
+
+// [新] 删除文件 (调用我们的新网关API)
+async deleteFile(window, file) {
+    // 拼接完整路径
+    const path = (window.currentPath === '/' ? '' : window.currentPath) + '/' + file.name;
+
+    if (!confirm(`确定要删除 ${path} 吗？\n\n此操作将根据您的 '完全控制' 权限 来决定是否成功。`)) return;
+
+    try {
+        // 调用 app.py 中新的 /api/files/.../delete 接口
+        await axios.post(`${this.apiBaseUrl}/api/files/${window.selectedNodeId}/delete`, {
+            path: path
+        });
+        alert('删除成功');
+        await this.loadFiles(window, window.currentPath); // 刷新
+    } catch (error) {
+        console.error("删除失败:", error);
+        // 显示 "权限不足"
+        alert('删除失败: ' + (error.response?.data?.message || error.message));
+    }
+},
+
+// [新] 创建文件夹 (调用我们的新网关API)
+async mkdirInFileExplorer(window) {
+    const folderName = prompt("请输入新文件夹名称:");
+    if (!folderName) return;
+
+    // 检查非法字符 (简化版)
+    if (folderName.includes('/') || folderName.includes('\\')) {
+        alert('文件夹名称不能包含 / 或 \\');
+        return;
+    }
+
+    const path = (window.currentPath === '/' ? '' : window.currentPath) + '/' + folderName;
+
+    try {
+        // 调用 app.py 中新的 /api/files/.../mkdir 接口
+        await axios.post(`${this.apiBaseUrl}/api/files/${window.selectedNodeId}/mkdir`, {
+            path: path
+        });
+        alert('文件夹创建成功');
+        await this.loadFiles(window, window.currentPath); // 刷新
+    } catch (error) {
+        console.error("创建文件夹失败:", error);
+        // 显示 "权限不足" (如果您设置为 'readwrite')
+        alert('创建失败: ' + (error.response?.data?.message || error.message));
+    }
+},
+
+          async loadMonitorOverview(window) {
   window.loading = true;
   try {
     const res = await axios.get(`${this.apiBaseUrl}/api/nodes`);
@@ -305,6 +492,175 @@ returnToMainCenter() {
   this.showNavbar = false;
   this.currentNodeName = 'NAS Center 主控';
   alert('已返回主控中心');
+},
+async checkAuth() {
+  try {
+    const response = await axios.get(`${this.apiBaseUrl}/api/check-auth`);
+    if (response.data.authenticated) {
+      this.currentUser = response.data.user;
+    } else {
+      window.location.href = '/login.html';
+    }
+  } catch (error) {
+    window.location.href = '/login.html';
+  }
+},
+// 用户管理相关方法
+async openUserManagement() {
+  if (this.currentUser?.role !== 'admin') {
+    alert('您没有权限访问用户管理');
+    return;
+  }
+
+  const win = this.createWindow({
+    type: 'user-management',
+    title: '用户管理',
+    icon: '👥',
+    width: 1100,
+    height: 600,
+    users: [],
+    loading: false
+  });
+
+  await this.loadUsers(win);
+},
+
+
+async loadUsers(window) {
+  window.loading = true;
+  try {
+    const response = await axios.get(`${this.apiBaseUrl}/api/users`);
+    window.users = response.data;
+  } catch (error) {
+    console.error('加载用户失败:', error);
+    alert('加载用户列表失败');
+  } finally {
+    window.loading = false;
+  }
+},
+
+async createUser(window) {
+  const username = prompt('请输入新用户名:');
+  if (!username) return;
+
+  const password = prompt(`请输入 ${username} 的密码:`);
+  if (!password) return;
+
+  const email = prompt(`(可选) 请输入 ${username} 的邮箱:`);
+
+  const role = prompt("请输入角色 (admin 或 user):", "user");
+  if (role !== 'admin' && role !== 'user') {
+      alert("角色必须是 'admin' 或 'user'");
+      return;
+  }
+
+  const userData = {
+    username: username,
+    password: password,
+    email: email || '',
+    role: role
+  };
+
+  try {
+    await axios.post(`${this.apiBaseUrl}/api/users`, userData);
+    alert('用户创建成功');
+    await this.loadUsers(window); // 重新加载用户
+  } catch (error) {
+    alert('创建用户失败: ' + (error.response?.data?.message || error.message));
+  }
+},
+
+// 👇 [替换] 使用这个新的 updateUser 方法
+async updateUser(window, user) {
+  const email = prompt(`请输入 ${user.username} 的新邮箱:`, user.email);
+  const role = prompt(`请输入 ${user.username} 的新角色 (admin 或 user):`, user.role);
+  const status = prompt(`请输入 ${user.username} 的状态 (active 或 deleted):`, user.status);
+
+  if (!role || (role !== 'admin' && role !== 'user')) {
+    alert("角色必须是 'admin' 或 'user'");
+    return;
+  }
+
+  if (!status || (status !== 'active' && status !== 'deleted')) {
+    alert("状态必须是 'active' 或 'deleted'");
+    return;
+  }
+
+  const userData = {
+    email: email || '',
+    role: role,
+    status: status
+  };
+
+  try {
+    await axios.put(`${this.apiBaseUrl}/api/users/${user.id}`, userData);
+    alert('用户更新成功');
+    await this.loadUsers(window); // 重新加载用户
+  } catch (error) {
+    alert('更新用户失败: ' + (error.response?.data?.message || error.message));
+  }
+},
+
+async deleteUser(window, user) {
+  if (!confirm(`确定要删除用户 ${user.username} 吗？`)) return;
+
+  try {
+    await axios.delete(`${this.apiBaseUrl}/api/users/${user.id}`);
+    alert('用户已删除');
+    await this.loadUsers(window);
+  } catch (error) {
+    alert('删除用户失败: ' + (error.response?.data?.message || error.message));
+  }
+},
+
+// 修改密码功能
+async openChangePassword() {
+  const newPassword = prompt('请输入新密码:');
+  if (!newPassword) return;
+
+  const confirmPassword = prompt('请再次确认新密码:');
+  if (newPassword !== confirmPassword) {
+    alert('两次输入的密码不一致');
+    return;
+  }
+
+  try {
+    await axios.put(`${this.apiBaseUrl}/api/users/${this.currentUser.id}/password`, {
+      password: newPassword
+    });
+    alert('密码修改成功，请重新登录');
+    this.logout();
+  } catch (error) {
+    alert('修改密码失败: ' + (error.response?.data?.message || error.message));
+  }
+},
+        openUserProfile() {
+  alert('个人信息功能开发中...');
+  // 您也可以在这里调用 this.createWindow(...) 来打开一个新窗口
+  this.showStartMenu = false; // 确保菜单关闭
+},
+async logout() {
+  if (confirm('确定要退出登录吗？')) {
+    try {
+      await axios.post(`${this.apiBaseUrl}/api/logout`);
+      window.location.href = '/login.html';
+    } catch (error) {
+      console.error('退出失败:', error);
+    }
+  }
+},
+async updateUserNodeAccess(user) {
+  try {
+    // 这个 API 您已经写好了
+    await axios.put(`${this.apiBaseUrl}/api/users/${user.id}/node-access`, user.node_access);
+    // (删除错误的那一行)
+  } catch (error) {
+    console.error('更新节点访问权限失败:', error);
+    alert('更新失败');
+  }
+},
+toggleUserMenu() {
+  this.showUserMenu = !this.showUserMenu;
 },
 
 refreshCurrentNode() {

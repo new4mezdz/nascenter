@@ -567,6 +567,94 @@
             </div>
           </div>
 
+
+          <div v-if="window.type === 'user-management'" class="h-full flex flex-col">
+            <div class="px-6 py-4 border-b bg-gradient-to-r from-gray-50 to-gray-100">
+              <div class="flex justify-between items-center">
+                <div>
+                  <h3 class="text-xl font-bold flex items-center gap-2">
+                    <span class="text-3xl">👥</span>
+                    用户管理
+                  </h3>
+                  <p class="text-sm text-gray-600 mt-1">创建、编辑和管理所有系统用户</p>
+                </div>
+                <button @click="createUser(window)"
+                        class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition flex items-center gap-2">
+                  <span>+</span>
+                  添加新用户
+                </button>
+              </div>
+            </div>
+
+            <div v-if="window.loading" class="flex-1 flex items-center justify-center">
+              <div class="loading"></div>
+              <span class="ml-3 text-gray-600">正在加载用户列表...</span>
+            </div>
+
+            <div v-else class="flex-1 overflow-auto p-6 bg-gray-50">
+              <div class="bg-white rounded-lg shadow border">
+                <table class="w-full">
+                  <thead class="bg-gray-50 border-b">
+                    <tr>
+                      <th class="text-left p-4 font-semibold text-gray-700">用户名</th>
+                      <th class="text-left p-4 font-semibold text-gray-700">邮箱</th>
+                      <th class="text-left p-4 font-semibold text-gray-700">角色</th>
+                      <th class="text-left p-4 font-semibold text-gray-700">状态</th>
+                      <th class="text-left p-4 font-semibold text-gray-700">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="user in window.users" :key="user.id"
+                        class="border-b hover:bg-gray-50">
+
+                      <td class="p-4">
+                        <div class="font-semibold text-gray-800">{{ user.username }}</div>
+                        <div class="text-xs text-gray-500">ID: {{ user.id }}</div>
+                      </td>
+
+                      <td class="p-4 text-sm">{{ user.email || 'N/A' }}</td>
+
+                      <td class="p-4">
+                        <span v-if="user.role === 'admin'" class="px-3 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
+                          👑 管理员
+                        </span>
+                        <span v-else class="px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">
+                          👤 普通用户
+                        </span>
+                      </td>
+
+                      <td class="p-4">
+                        <span v-if="user.status === 'active'" class="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                          ✓ 活跃
+                        </span>
+                        <span v-else class="px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">
+                          ✗ 已禁用
+                        </span>
+                      </td>
+
+                      <td class="p-4">
+                        <div class="flex gap-2">
+                          <button @click="updateUser(window, user)"
+                                  :disabled="user.username === 'admin'"
+                                  :class="user.username === 'admin' ? 'opacity-50 cursor-not-allowed bg-gray-400' : 'bg-green-500 hover:bg-green-600'"
+                                  class="px-3 py-1 text-white rounded text-xs">
+                            ✏️ 编辑
+                          </button>
+                          <button @click="deleteUser(window, user)"
+                                  :disabled="user.username === 'admin'"
+                                  :class="user.username === 'admin' ? 'opacity-50 cursor-not-allowed bg-gray-400' : 'bg-red-500 hover:bg-red-600'"
+                                  class="px-3 py-1 text-white rounded text-xs">
+                            🗑️ 删除
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
           <!-- 空间分配窗口 -->
           <div v-if="window.type === 'space-allocation'" class="h-full flex flex-col">
             <div class="px-6 py-4 border-b bg-gradient-to-r from-purple-50 to-pink-50">
@@ -685,6 +773,9 @@
 
           <!-- 权限设置窗口 -->
           <div v-if="window.type === 'permissions'" class="h-full flex flex-col">
+            <div v-if="window.loading" class="absolute inset-0 bg-white/50 flex items-center justify-center z-10" style="top: 0; left: 0; right: 0; bottom: 0;">
+              <div class="loading"></div> <span class="ml-2">正在加载数据...</span>
+            </div>
             <div class="px-6 py-4 border-b bg-gradient-to-r from-orange-50 to-red-50">
               <h3 class="text-xl font-bold flex items-center gap-2">
                 <span class="text-3xl">🔒</span>
@@ -713,112 +804,67 @@
                       <th class="text-left p-3 font-semibold text-gray-700">操作</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    <tr class="border-b">
-                      <td class="p-3">
-                        <div class="flex items-center gap-2">
-                          <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold">A</div>
-                          <span class="font-semibold">admin</span>
-                        </div>
-                      </td>
-                      <td class="p-3">
-                        <span class="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-semibold">
-                          👑 管理员
-                        </span>
-                      </td>
-                      <td class="p-3">
-                        <span class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
-                          ✓ 完全控制
-                        </span>
-                      </td>
-                      <td class="p-3">
-                        <span class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
-                          ✓ 所有节点
-                        </span>
-                      </td>
-                      <td class="p-3">
-                        <button class="px-3 py-1 bg-gray-300 text-gray-500 rounded text-xs cursor-not-allowed">
-                          系统管理员
-                        </button>
-                      </td>
-                    </tr>
+                  <tbody v-if="!window.loading">
+  <tr v-for="user in window.users" :key="user.id" class="border-b hover:bg-gray-50">
 
-                    <tr class="border-b">
-                      <td class="p-3">
-                        <div class="flex items-center gap-2">
-                          <div class="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white font-bold">U</div>
-                          <span class="font-semibold">user01</span>
-                        </div>
-                      </td>
-                      <td class="p-3">
-                        <span class="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-semibold">
-                          👤 普通用户
-                        </span>
-                      </td>
-                      <td class="p-3">
-                        <select class="px-3 py-1 border rounded text-xs">
-                          <option>只读</option>
-                          <option selected>读写</option>
-                          <option>完全控制</option>
-                        </select>
-                      </td>
-                      <td class="p-3">
-                        <select class="px-3 py-1 border rounded text-xs">
-                          <option selected>本地节点</option>
-                          <option>所有节点</option>
-                          <option>自定义</option>
-                        </select>
-                      </td>
-                      <td class="p-3">
-                        <div class="flex gap-2">
-                          <button class="px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600">
-                            编辑
-                          </button>
-                          <button class="px-3 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600">
-                            删除
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+    <td class="p-3">
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-xs">
+          {{ user.username[0].toUpperCase() }}
+        </div>
+        <span class="font-semibold">{{ user.username }}</span>
+      </div>
+    </td>
 
-                    <tr class="border-b">
-                      <td class="p-3">
-                        <div class="flex items-center gap-2">
-                          <div class="w-8 h-8 bg-yellow-500 rounded-full flex items-center justify-center text-white font-bold">G</div>
-                          <span class="font-semibold">guest</span>
-                        </div>
-                      </td>
-                      <td class="p-3">
-                        <span class="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-semibold">
-                          👤 访客
-                        </span>
-                      </td>
-                      <td class="p-3">
-                        <select class="px-3 py-1 border rounded text-xs">
-                          <option selected>只读</option>
-                          <option>读写</option>
-                          <option>完全控制</option>
-                        </select>
-                      </td>
-                      <td class="p-3">
-                        <select class="px-3 py-1 border rounded text-xs">
-                          <option selected>无访问</option>
-                          <option>本地节点</option>
-                          <option>所有节点</option>
-                        </select>
-                      </td>
-                      <td class="p-3">
-                        <div class="flex gap-2">
-                          <button class="px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600">
-                            编辑
-                          </button>
-                          <button class="px-3 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600">
-                            删除
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
+    <td class="p-3">
+      <select v-model="user.role" @change="updateUserPermissions(user)"
+              :disabled="user.username === 'admin'"
+              class="px-3 py-1 border rounded text-xs"
+              :class="{ 'cursor-not-allowed bg-gray-100': user.username === 'admin' }">
+        <option value="admin">👑 管理员</option>
+        <option value="user">👤 普通用户</option>
+      </select>
+    </td>
+
+    <td class="p-3">
+      <select v-model="user.file_permission" @change="updateUserPermissions(user)"
+              :disabled="user.username === 'admin'"
+              class="px-3 py-1 border rounded text-xs"
+              :class="{ 'cursor-not-allowed bg-gray-100': user.username === 'admin' }">
+        <option value="readonly">👁️ 只读</option>
+        <option value="readwrite">✏️ 读写</option>
+        <option value="fullcontrol">🔓 完全控制</option>
+      </select>
+    </td>
+
+    <td class="p-3">
+      <select v-model="user.node_access.type" @change="updateUserNodeAccess(user)"
+              :disabled="user.username === 'admin'"
+              class="px-3 py-1 border rounded text-xs"
+              :class="{ 'cursor-not-allowed bg-gray-100': user.username === 'admin' }">
+        <option value="all">✓ 所有节点</option>
+        <option value="groups">按分组</option>
+        <option value="custom">自定义</option>
+      </select>
+    </td>
+
+    <td class="p-3">
+      <div v-if="user.username === 'admin'" class="flex gap-2">
+        <button class="px-3 py-1 bg-gray-300 text-gray-500 rounded text-xs cursor-not-allowed">
+          系统管理员
+        </button>
+      </div>
+      <div v-else class="flex gap-2">
+        <button @click="openUserAccessDetail(user)" class="px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600">
+          编辑
+        </button>
+        <button @click="deleteUser(window, user)" class="px-3 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600">
+          删除
+        </button>
+      </div>
+    </td>
+  </tr>
+</tbody>
                 </table>
               </div>
 
@@ -865,64 +911,34 @@
 
               <!-- 节点访问控制 -->
               <div class="bg-white rounded-lg shadow border p-6">
-                <h4 class="font-bold text-lg mb-4">节点访问控制</h4>
-                <div class="space-y-3">
-                  <div class="flex items-center justify-between p-4 border rounded-lg">
-                    <div class="flex items-center gap-3">
-                      <div class="text-3xl">🖥️</div>
-                      <div>
-                        <div class="font-semibold">我的本地节点</div>
-                        <div class="text-xs text-gray-600">127.0.0.1:5000</div>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <span class="text-xs text-gray-600">访问策略:</span>
-                      <select class="px-3 py-1 border rounded text-sm">
-                        <option selected>所有用户</option>
-                        <option>仅管理员</option>
-                        <option>白名单用户</option>
-                        <option>禁止访问</option>
-                      </select>
-                    </div>
-                  </div>
+  <h4 class="font-bold text-lg mb-4">节点访问控制</h4>
+  <div class="space-y-3">
 
-                  <div class="flex items-center justify-between p-4 border rounded-lg">
-                    <div class="flex items-center gap-3">
-                      <div class="text-3xl">🖥️</div>
-                      <div>
-                        <div class="font-semibold">NAS-主节点</div>
-                        <div class="text-xs text-gray-600">192.168.1.100:8000</div>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <span class="text-xs text-gray-600">访问策略:</span>
-                      <select class="px-3 py-1 border rounded text-sm">
-                        <option>所有用户</option>
-                        <option selected>仅管理员</option>
-                        <option>白名单用户</option>
-                        <option>禁止访问</option>
-                      </select>
-                    </div>
-                  </div>
+    <div v-for="node in window.nodes" :key="node.id"
+         class="flex items-center justify-between p-4 border rounded-lg">
+      <div class="flex items-center gap-3">
+        <div class="text-3xl">🖥️</div>
+        <div>
+          <div class="font-semibold">{{ node.name }}</div>
+          <div class="text-xs text-gray-600">{{ node.ip }}:{{ node.port }}</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-gray-600">访问策略:</span>
+        <select v-model="window.nodePolicies[node.id]"
+                @change="updateNodePolicy(node.id, $event.target.value)"
+                class="px-3 py-1 border rounded text-sm">
+          <option value="all_users">所有用户</option>
+          <option value="admin_only">仅管理员</option>
+          <option value="whitelist">白名单用户</option>
+          <option value="disabled">禁止访问</option>
+        </select>
+      </div>
+    </div>
 
-                  <div class="flex items-center justify-between p-4 border rounded-lg">
-                    <div class="flex items-center gap-3">
-                      <div class="text-3xl">🖥️</div>
-                      <div>
-                        <div class="font-semibold">NAS-备份节点</div>
-                        <div class="text-xs text-gray-600">192.168.1.101:8000</div>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <span class="text-xs text-gray-600">访问策略:</span>
-                      <select class="px-3 py-1 border rounded text-sm">
-                        <option selected>所有用户</option>
-                        <option>仅管理员</option>
-                        <option>白名单用户</option>
-                        <option>禁止访问</option>
-                      </select>
-                    </div>
-                  </div>
+
+
+
                 </div>
               </div>
 
@@ -946,6 +962,7 @@
 
           <!-- 加密管理窗口 -->
           <div v-if="window.type === 'encryption'" class="h-full flex flex-col">
+
             <div class="px-6 py-4 border-b bg-gradient-to-r from-indigo-50 to-purple-50">
               <h3 class="text-xl font-bold flex items-center gap-2">
                 <span class="text-3xl">🔐</span>
@@ -1314,119 +1331,154 @@
         </div>
       </div>
 
-      <div class="taskbar">
-        <div class="taskbar-item" @click.stop="toggleStartMenu">
-  <span class="text-xl">🚀</span>
-  <span class="ml-2 font-semibold">NAS Center</span>
-</div>
+     <div class="taskbar">
+  <div class="taskbar-item" @click.stop="toggleStartMenu">
+    <span class="text-xl">🚀</span>
+    <span class="ml-2 font-semibold">NAS Center</span>
+  </div>
 
-        <div v-for="window in windows.filter(w => !w.minimized)"
-             :key="window.id"
-             @click="focusWindow(window.id)"
-             :class="['taskbar-item', { active: window.zIndex === maxZIndex }]">
-          <span>{{ window.icon }}</span>
-          <span class="ml-2">{{ window.title }}</span>
-        </div>
+  <div v-for="window in windows.filter(w => !w.minimized)"
+        :key="window.id"
+        @click="focusWindow(window.id)"
+        :class="['taskbar-item', { active: window.zIndex === maxZIndex }]">
+    <span>{{ window.icon }}</span>
+    <span class="ml-2">{{ window.title }}</span>
+  </div>
 
-        <div class="ml-auto flex items-center gap-4 text-white text-sm">
-          <span>⏰ {{ currentTime }}</span>
+  <div class="ml-auto flex items-center gap-4 text-white text-sm">
+
+    <span>⏰ {{ currentTime }}</span>
+
+    <div v-if="showStartMenu" class="start-menu">
+      <div class="start-menu-header">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-xl font-bold">NAS Center</div>
+            <div class="text-sm opacity-90 mt-1">主控管理中心</div>
+          </div>
+          <div class="text-3xl">🚀</div>
         </div>
       </div>
 
-       <!-- 👇 在这里添加开始菜单 -->
-      <div v-if="showStartMenu" class="start-menu">
-        <div class="start-menu-header">
-          <div class="flex items-center justify-between">
-            <div>
-              <div class="text-xl font-bold">NAS Center</div>
-              <div class="text-sm opacity-90 mt-1">主控管理中心</div>
-            </div>
-            <div class="text-3xl">🚀</div>
+      <div class="start-menu-section">
+        <div class="start-menu-section-title">快速访问</div>
+        <div class="start-menu-item" @click="openNodeManagement(); showStartMenu = false">
+          <span class="text-xl">🖥️</span>
+          <div class="flex-1">
+            <div class="font-semibold">节点管理</div>
+            <div class="text-xs opacity-70">管理所有NAS节点</div>
+          </div>
+        </div>
+        <div class="start-menu-item" @click="openSystemMonitor(); showStartMenu = false">
+          <span class="text-xl">📊</span>
+          <div class="flex-1">
+            <div class="font-semibold">系统监控</div>
+            <div class="text-xs opacity-70">实时硬件监控</div>
+          </div>
+        </div>
+        <div class="start-menu-item" @click="openSpaceAllocation(); showStartMenu = false">
+          <span class="text-xl">📦</span>
+          <div class="flex-1">
+            <div class="font-semibold">空间分配</div>
+            <div class="text-xs opacity-70">跨节点文件分配</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="h-px bg-white/10 my-2"></div>
+
+      <div class="start-menu-section">
+        <div class="start-menu-section-title">安全管理</div>
+        <div class="start-menu-item" @click="openEncryptionManager(); showStartMenu = false">
+          <span class="text-xl">🔐</span>
+          <div class="flex-1">
+            <div class="font-semibold">加密管理</div>
+            <div class="text-xs opacity-70">磁盘和文件加密</div>
+          </div>
+        </div>
+        <div class="start-menu-item" @click="openPermissionSettings(); showStartMenu = false">
+          <span class="text-xl">🔒</span>
+          <div class="flex-1">
+            <div class="font-semibold">权限设置</div>
+            <div class="text-xs opacity-70">用户访问控制</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="h-px bg-white/10 my-2"></div>
+
+      <div class="start-menu-section">
+        <div class="start-menu-section-title">高级功能</div>
+        <div class="start-menu-item" @click="openECConfig(); showStartMenu = false">
+          <span class="text-xl">🛡️</span>
+          <div class="flex-1">
+            <div class="font-semibold">纠删码配置</div>
+            <div class="text-xs opacity-70">数据冗余保护</div>
+          </div>
+        </div>
+        <div class="start-menu-item start-menu-item-disabled">
+          <span class="text-xl">📡</span>
+          <div class="flex-1">
+            <div class="font-semibold">远程同步</div>
+            <div class="text-xs opacity-70">即将推出</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="h-px bg-white/10 my-2"></div>
+      <div class="start-menu-section">
+        <div class="start-menu-section-title">
+          {{ currentUser?.username || '用户' }} {{ currentUser?.role === 'admin' ? '(管理员)' : '' }}
+        </div>
+
+        <div class="start-menu-item" @click="openUserProfile(); showStartMenu = false">
+          <span class="text-xl">👤</span>
+          <div class="flex-1">
+            <div class="font-semibold">个人信息</div>
+            <div class="text-xs opacity-70">{{ currentUser?.email || '无邮箱' }}</div>
           </div>
         </div>
 
-        <div class="start-menu-section">
-          <div class="start-menu-section-title">快速访问</div>
-          <div class="start-menu-item" @click="openNodeManagement; showStartMenu = false">
-            <span class="text-xl">🖥️</span>
-            <div class="flex-1">
-              <div class="font-semibold">节点管理</div>
-              <div class="text-xs opacity-70">管理所有NAS节点</div>
-            </div>
-          </div>
-          <div class="start-menu-item" @click="openSystemMonitor; showStartMenu = false">
-            <span class="text-xl">📊</span>
-            <div class="flex-1">
-              <div class="font-semibold">系统监控</div>
-              <div class="text-xs opacity-70">实时硬件监控</div>
-            </div>
-          </div>
-          <div class="start-menu-item" @click="openSpaceAllocation; showStartMenu = false">
-            <span class="text-xl">📦</span>
-            <div class="flex-1">
-              <div class="font-semibold">空间分配</div>
-              <div class="text-xs opacity-70">跨节点文件分配</div>
-            </div>
+        <div class="start-menu-item" @click="openChangePassword(); showStartMenu = false">
+          <span class="text-xl">🔑</span>
+          <div class="flex-1">
+            <div class="font-semibold">修改密码</div>
           </div>
         </div>
 
-        <div class="h-px bg-white/10 my-2"></div>
-
-        <div class="start-menu-section">
-          <div class="start-menu-section-title">安全管理</div>
-          <div class="start-menu-item" @click="openEncryptionManager; showStartMenu = false">
-            <span class="text-xl">🔐</span>
-            <div class="flex-1">
-              <div class="font-semibold">加密管理</div>
-              <div class="text-xs opacity-70">磁盘和文件加密</div>
-            </div>
-          </div>
-          <div class="start-menu-item" @click="openPermissionSettings; showStartMenu = false">
-            <span class="text-xl">🔒</span>
-            <div class="flex-1">
-              <div class="font-semibold">权限设置</div>
-              <div class="text-xs opacity-70">用户访问控制</div>
-            </div>
+        <div v-if="currentUser?.role === 'admin'" class="start-menu-item" @click="openUserManagement(); showStartMenu = false">
+          <span class="text-xl">👥</span>
+          <div class="flex-1">
+            <div class="font-semibold">用户管理</div>
           </div>
         </div>
 
-        <div class="h-px bg-white/10 my-2"></div>
-
-        <div class="start-menu-section">
-          <div class="start-menu-section-title">高级功能</div>
-          <div class="start-menu-item" @click="openECConfig; showStartMenu = false">
-            <span class="text-xl">🛡️</span>
-            <div class="flex-1">
-              <div class="font-semibold">纠删码配置</div>
-              <div class="text-xs opacity-70">数据冗余保护</div>
-            </div>
-          </div>
-          <div class="start-menu-item start-menu-item-disabled">
-            <span class="text-xl">📡</span>
-            <div class="flex-1">
-              <div class="font-semibold">远程同步</div>
-              <div class="text-xs opacity-70">即将推出</div>
-            </div>
+        <div class="start-menu-item" @click="logout(); showStartMenu = false">
+          <span class="text-xl">🚪</span>
+          <div class="flex-1">
+            <div class="font-semibold" style="color: #f87171;">退出登录</div>
           </div>
         </div>
+      </div>
+      <div class="h-px bg-white/10 my-2"></div>
 
-        <div class="h-px bg-white/10 my-2"></div>
-
-        <div class="start-menu-section">
-          <div class="start-menu-item" @click="showStartMenu = false">
-            <span class="text-xl">ℹ️</span>
-            <span>关于系统</span>
-          </div>
-          <div class="start-menu-item" @click="showStartMenu = false">
-            <span class="text-xl">❓</span>
-            <span>帮助文档</span>
-          </div>
+      <div class="start-menu-section">
+        <div class="start-menu-item" @click="showStartMenu = false">
+          <span class="text-xl">ℹ️</span>
+          <span>关于系统</span>
+        </div>
+        <div class="start-menu-item" @click="showStartMenu = false">
+          <span class="text-xl">❓</span>
+          <span>帮助文档</span>
         </div>
       </div>
     </div>
-  </div>
+     </div>
 
   </div>
+      </div></div>
+
+
 
   <script src="app.js"></script>
 
