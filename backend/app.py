@@ -1,6 +1,6 @@
 from flask import Flask, jsonify, request, send_file, session, redirect
 from flask_cors import CORS
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import requests
 import sqlite3, json, time
@@ -16,6 +16,14 @@ app = Flask(__name__,
             static_url_path='')  # ✅ 静态文件路径为根路径
 CORS(app, supports_credentials=True)  # ← 修改这里,支持凭证
 app.secret_key = 'your-secret-key-change-this-in-production'  # ← 添加密钥
+
+
+# ✅✅✅ 添加这 4 行 ✅✅✅
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = False  # 开发环境用 False
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)  # 7天有效期
+# ✅✅✅ 添加结束 ✅✅✅
 
 # nascenter/backend/app.py
 
@@ -243,6 +251,267 @@ def init_db():
     conn.close()
 
 
+# ============================================
+# 节点分组管理 API
+# ============================================
+
+@app.route('/api/node-groups', methods=['GET'])
+@login_required
+def get_node_groups():
+    """获取所有节点分组"""
+    conn = sqlite3.connect('nas_center.db')
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # 获取所有分组
+    cursor.execute('''
+        SELECT id, name, description, icon, created_at, updated_at
+        FROM node_groups
+        ORDER BY name
+    ''')
+    groups = [dict(row) for row in cursor.fetchall()]
+
+    # 为每个分组获取成员节点
+    for group in groups:
+        cursor.execute('''
+            SELECT node_id 
+            FROM node_group_members 
+            WHERE group_id = ?
+        ''', (group['id'],))
+        group['nodes'] = [row['node_id'] for row in cursor.fetchall()]
+
+    conn.close()
+    return jsonify(groups)
+
+
+@app.route('/api/node-groups', methods=['POST'])
+@login_required
+@admin_required
+def create_node_group():
+    """创建节点分组"""
+    data = request.json
+    name = data.get('name')
+    description = data.get('description', '')
+    icon = data.get('icon', '📁')
+    nodes = data.get('nodes', [])  # 节点ID列表
+
+    if not name:
+        return jsonify({'error': '分组名称不能为空'}), 400
+
+    conn = sqlite3.connect('nas_center.db')
+    cursor = conn.cursor()
+
+    try:
+        # 创建分组
+        cursor.execute('''
+            INSERT INTO node_groups (name, description, icon)
+            VALUES (?, ?, ?)
+        ''', (name, description, icon))
+
+        group_id = cursor.lastrowid
+
+        # 添加节点成员
+        for node_id in nodes:
+            cursor.execute('''
+                INSERT INTO node_group_members (node_id, group_id)
+                VALUES (?, ?)
+            ''', (node_id, group_id))
+
+        conn.commit()
+
+        return jsonify({
+            'success': True,
+            'id': group_id,
+            'message': '分组创建成功'
+        })
+
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        return jsonify({'error': '分组名称已存在'}), 400
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
+
+
+@app.route('/api/node-groups/<int:group_id>', methods=['PUT'])
+@login_required
+@admin_required
+def update_node_group(group_id):
+    """更新节点分组"""
+    data = request.json
+    name = data.get('name')
+    description = data.get('description')
+    icon = data.get('icon')
+    nodes = data.get('nodes')  # 节点ID列表
+
+    conn = sqlite3.connect('nas_center.db')
+    cursor = conn.cursor()
+
+    try:
+        # 更新分组信息
+        if name or description or icon:
+            updates = []
+            params = []
+
+            if name:
+                updates.append('name = ?')
+                params.append(name)
+            if description is not None:
+                updates.append('description = ?')
+                params.append(description)
+            if icon:
+                updates.append('icon = ?')
+                params.append(icon)
+
+            params.append(group_id)
+
+            cursor.execute(f'''
+                UPDATE node_groups 
+                SET {', '.join(updates)}
+                WHERE id = ?
+            ''', params)
+
+        # 更新节点成员
+        if nodes is not None:
+            # 删除旧成员
+            cursor.execute('DELETE FROM node_group_members WHERE group_id = ?', (group_id,))
+
+            # 添加新成员
+            for node_id in nodes:
+                cursor.execute('''
+                    INSERT INTO node_group_members (node_id, group_id)
+                    VALUES (?, ?)
+                ''', (node_id, group_id))
+
+        conn.commit()
+
+        return jsonify({
+            'success': True,
+            'message': '分组更新成功'
+        })
+
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        return jsonify({'error': '分组名称已存在'}), 400
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
+
+
+@app.route('/api/node-groups/<int:group_id>', methods=['DELETE'])
+@login_required
+@admin_required
+def delete_node_group(group_id):
+    """删除节点分组"""
+    conn = sqlite3.connect('nas_center.db')
+    cursor = conn.cursor()
+
+    try:
+        # 检查是否有用户正在使用此分组
+        cursor.execute('''
+            SELECT COUNT(*) as count
+            FROM users
+            WHERE json_extract(node_access, '$.type') = 'groups'
+            AND json_extract(node_access, '$.allowed_groups') LIKE ?
+        ''', (f'%{group_id}%',))
+
+        count = cursor.fetchone()[0]
+        if count > 0:
+            return jsonify({
+                'error': f'有 {count} 个用户正在使用此分组,无法删除'
+            }), 400
+
+        # 删除分组(成员会因为 CASCADE 自动删除)
+        cursor.execute('DELETE FROM node_groups WHERE id = ?', (group_id,))
+
+        conn.commit()
+
+        return jsonify({
+            'success': True,
+            'message': '分组删除成功'
+        })
+
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
+
+
+# ============================================
+# 用户节点权限检查 API
+# ============================================
+
+@app.route('/api/users/<int:user_id>/accessible-nodes', methods=['GET'])
+@login_required
+def get_user_accessible_nodes(user_id):
+    """获取用户可访问的节点列表"""
+    # 权限检查
+    if session['user_id'] != user_id and session['role'] != 'admin':
+        return jsonify({'error': '无权查看'}), 403
+
+    conn = sqlite3.connect('nas_center.db')
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # 获取用户信息
+    cursor.execute('SELECT node_access, role FROM users WHERE id = ?', (user_id,))
+    user = cursor.fetchone()
+
+    if not user:
+        conn.close()
+        return jsonify({'error': '用户不存在'}), 404
+
+    # 管理员可以访问所有节点
+    if user['role'] == 'admin':
+        conn.close()
+        return jsonify({
+            'type': 'all',
+            'nodes': [node['id'] for node in NODES_CONFIG]
+        })
+
+    # 解析 node_access
+    node_access = json.loads(user['node_access'])
+    access_type = node_access.get('type', 'all')
+
+    accessible_nodes = []
+
+    if access_type == 'all':
+        # 所有节点
+        accessible_nodes = [node['id'] for node in NODES_CONFIG]
+
+    elif access_type == 'groups':
+        # 按分组访问
+        allowed_groups = node_access.get('allowed_groups', [])
+
+        if allowed_groups:
+            placeholders = ','.join('?' * len(allowed_groups))
+            cursor.execute(f'''
+                SELECT DISTINCT node_id
+                FROM node_group_members
+                WHERE group_id IN ({placeholders})
+            ''', allowed_groups)
+
+            accessible_nodes = [row['node_id'] for row in cursor.fetchall()]
+
+    elif access_type == 'custom':
+        # 自定义节点
+        accessible_nodes = node_access.get('allowed_nodes', [])
+
+    # 排除明确拒绝的节点
+    denied_nodes = node_access.get('denied_nodes', [])
+    accessible_nodes = [nid for nid in accessible_nodes if nid not in denied_nodes]
+
+    conn.close()
+
+    return jsonify({
+        'type': access_type,
+        'nodes': accessible_nodes
+    })
 @app.route('/')
 def index():
     """根路由 - 检查登录状态"""
@@ -285,6 +554,8 @@ def login():
 
     # 验证密码
     if user and user['password_hash'] == password:
+        # ✅ 添加这一行!
+        session.permanent = True
         # 登录成功,保存到 session
         session['user_id'] = user['id']
         session['username'] = user['username']

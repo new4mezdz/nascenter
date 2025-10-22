@@ -17,6 +17,28 @@ const { createApp } = Vue;
     currentNodeName: 'NAS Center 主控',
           currentUser: null,  // 当前登录用户
 showUserMenu: false, // 用户菜单显示状态
+
+            // 节点分组相关
+    showGroupDialog: false,
+    groupDialogMode: 'create',  // 'create' | 'edit'
+    groupForm: {
+      id: null,
+      name: '',
+      description: '',
+      icon: '📁',
+      nodes: []
+    },
+    availableNodes: [],  // 所有可用节点列表
+
+    // 用户节点权限对话框
+    showUserAccessDialog: false,
+    currentEditUser: null,
+    userAccessForm: {
+      type: 'all',
+      allowed_groups: [],
+      allowed_nodes: [],
+      denied_nodes: []
+}
         };
       },
       mounted() {
@@ -26,6 +48,8 @@ showUserMenu: false, // 用户菜单显示状态
         this.checkAuth();
       },
       methods: {
+
+
 
         updateTime() {
           const now = new Date();
@@ -538,6 +562,8 @@ async loadUsers(window) {
     window.loading = false;
   }
 },
+
+
 
 async createUser(window) {
   const username = prompt('请输入新用户名:');

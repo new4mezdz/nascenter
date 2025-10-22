@@ -245,6 +245,54 @@
       from { opacity: 0; transform: scale(0.9); }
       to { opacity: 1; transform: scale(1); }
     }
+    /* 模态对话框 */
+.modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 600px;
+    width: 90%;
+}
+
+/* 徽章 */
+.badge {
+    display: inline-block;
+    padding: 4px 8px;
+    background: #e5e7eb;
+    border-radius: 4px;
+    font-size: 12px;
+    margin: 2px;
+}
+
+/* 卡片 */
+.card {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.card:hover {
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+/* 标签页激活样式 */
+.tab-active {
+    background: white;
+    border-bottom: 2px solid #3b82f6;
+    color: #3b82f6;
+}
 
     .window {
       animation: fadeIn 0.2s ease-out;
@@ -295,17 +343,30 @@
     </div>
 
     <div class="ml-auto flex items-center gap-3">
-      <button @click="openNodeManagement" class="navbar-button">
-        <span>🔄</span>
-        <span>切换节点</span>
-      </button>
+  <button @click="openNodeManagement" class="navbar-button">
+    <span>🔄</span>
+    <span>切换节点</span>
+  </button>
 
-      <button @click="refreshCurrentNode" class="navbar-button">
-        <span>🔃</span>
-        <span>刷新</span>
-      </button>
-    </div>
+  <button @click="refreshCurrentNode" class="navbar-button">
+    <span>🔃</span>
+    <span>刷新</span>
+  </button>
+
+  <!-- ✅ 新增:用户信息 -->
+  <div class="text-white text-sm flex items-center gap-2">
+    <span>👤</span>
+    <span>{{ currentUser }}</span>
   </div>
+
+  <!-- ✅ 新增:退出登录按钮 -->
+  <button @click="logout" class="navbar-button bg-red-500 hover:bg-red-600">
+    <span>🚪</span>
+    <span>退出</span>
+  </button>
+</div>
+  </div>
+
     <div :class="['desktop fixed inset-0', { 'desktop-with-navbar': showNavbar }]" @click="closeAllMenus">
 
       <div class="icon-grid p-8">
@@ -567,94 +628,6 @@
             </div>
           </div>
 
-
-          <div v-if="window.type === 'user-management'" class="h-full flex flex-col">
-            <div class="px-6 py-4 border-b bg-gradient-to-r from-gray-50 to-gray-100">
-              <div class="flex justify-between items-center">
-                <div>
-                  <h3 class="text-xl font-bold flex items-center gap-2">
-                    <span class="text-3xl">👥</span>
-                    用户管理
-                  </h3>
-                  <p class="text-sm text-gray-600 mt-1">创建、编辑和管理所有系统用户</p>
-                </div>
-                <button @click="createUser(window)"
-                        class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition flex items-center gap-2">
-                  <span>+</span>
-                  添加新用户
-                </button>
-              </div>
-            </div>
-
-            <div v-if="window.loading" class="flex-1 flex items-center justify-center">
-              <div class="loading"></div>
-              <span class="ml-3 text-gray-600">正在加载用户列表...</span>
-            </div>
-
-            <div v-else class="flex-1 overflow-auto p-6 bg-gray-50">
-              <div class="bg-white rounded-lg shadow border">
-                <table class="w-full">
-                  <thead class="bg-gray-50 border-b">
-                    <tr>
-                      <th class="text-left p-4 font-semibold text-gray-700">用户名</th>
-                      <th class="text-left p-4 font-semibold text-gray-700">邮箱</th>
-                      <th class="text-left p-4 font-semibold text-gray-700">角色</th>
-                      <th class="text-left p-4 font-semibold text-gray-700">状态</th>
-                      <th class="text-left p-4 font-semibold text-gray-700">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="user in window.users" :key="user.id"
-                        class="border-b hover:bg-gray-50">
-
-                      <td class="p-4">
-                        <div class="font-semibold text-gray-800">{{ user.username }}</div>
-                        <div class="text-xs text-gray-500">ID: {{ user.id }}</div>
-                      </td>
-
-                      <td class="p-4 text-sm">{{ user.email || 'N/A' }}</td>
-
-                      <td class="p-4">
-                        <span v-if="user.role === 'admin'" class="px-3 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
-                          👑 管理员
-                        </span>
-                        <span v-else class="px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">
-                          👤 普通用户
-                        </span>
-                      </td>
-
-                      <td class="p-4">
-                        <span v-if="user.status === 'active'" class="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
-                          ✓ 活跃
-                        </span>
-                        <span v-else class="px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">
-                          ✗ 已禁用
-                        </span>
-                      </td>
-
-                      <td class="p-4">
-                        <div class="flex gap-2">
-                          <button @click="updateUser(window, user)"
-                                  :disabled="user.username === 'admin'"
-                                  :class="user.username === 'admin' ? 'opacity-50 cursor-not-allowed bg-gray-400' : 'bg-green-500 hover:bg-green-600'"
-                                  class="px-3 py-1 text-white rounded text-xs">
-                            ✏️ 编辑
-                          </button>
-                          <button @click="deleteUser(window, user)"
-                                  :disabled="user.username === 'admin'"
-                                  :class="user.username === 'admin' ? 'opacity-50 cursor-not-allowed bg-gray-400' : 'bg-red-500 hover:bg-red-600'"
-                                  class="px-3 py-1 text-white rounded text-xs">
-                            🗑️ 删除
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
           <!-- 空间分配窗口 -->
           <div v-if="window.type === 'space-allocation'" class="h-full flex flex-col">
             <div class="px-6 py-4 border-b bg-gradient-to-r from-purple-50 to-pink-50">
@@ -773,266 +746,365 @@
 
           <!-- 权限设置窗口 -->
           <div v-if="window.type === 'permissions'" class="h-full flex flex-col">
-            <div v-if="window.loading" class="absolute inset-0 bg-white/50 flex items-center justify-center z-10" style="top: 0; left: 0; right: 0; bottom: 0;">
-              <div class="loading"></div> <span class="ml-2">正在加载数据...</span>
-            </div>
-            <div class="px-6 py-4 border-b bg-gradient-to-r from-orange-50 to-red-50">
-              <h3 class="text-xl font-bold flex items-center gap-2">
-                <span class="text-3xl">🔒</span>
-                权限管理
-              </h3>
-              <p class="text-sm text-gray-600 mt-1">配置用户和节点的访问权限</p>
-            </div>
 
-            <div class="flex-1 overflow-auto p-6 bg-gray-50">
-
-               <!-- 标签页切换 -->
-  <div class="flex gap-2 mb-6 border-b">
+    <!-- ========== 1. 标签页导航 ========== -->
+    <!-- 标签页导航 -->
+<div class="flex border-b bg-gray-50">
     <button @click="window.permissionTab = 'users'"
-            :class="window.permissionTab === 'users' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'"
-            class="px-4 py-2 font-semibold">
-      用户权限
+            :class="window.permissionTab === 'users' ? 'bg-white border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'"
+            class="px-6 py-3 font-semibold transition">
+        👤 用户管理
     </button>
-    <button @click="window.permissionTab = 'groups'"
-            :class="window.permissionTab === 'groups' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'"
-            class="px-4 py-2 font-semibold">
-      节点分组
+    <button @click="window.permissionTab = 'node-groups'"
+            :class="window.permissionTab === 'node-groups' ? 'bg-white border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'"
+            class="px-6 py-3 font-semibold transition">
+        📁 节点分组
     </button>
-  </div>
-
-<div v-if="window.permissionTab === 'users'">
-              <!-- 用户权限管理 -->
-              <div class="bg-white rounded-lg shadow border p-6 mb-6">
-                <div class="flex justify-between items-center mb-4">
-                  <h4 class="font-bold text-lg">用户访问权限</h4>
-                  <button class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
-                    + 添加用户
-                  </button>
-                </div>
-
-                <table class="w-full">
-                  <thead class="bg-gray-50 border-b">
-                    <tr>
-                      <th class="text-left p-3 font-semibold text-gray-700">用户名</th>
-                      <th class="text-left p-3 font-semibold text-gray-700">角色</th>
-                      <th class="text-left p-3 font-semibold text-gray-700">文件权限</th>
-                      <th class="text-left p-3 font-semibold text-gray-700">节点权限</th>
-                      <th class="text-left p-3 font-semibold text-gray-700">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody v-if="!window.loading">
-  <tr v-for="user in window.users" :key="user.id" class="border-b hover:bg-gray-50">
-
-    <td class="p-3">
-      <div class="flex items-center gap-2">
-        <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-xs">
-          {{ user.username[0].toUpperCase() }}
-        </div>
-        <span class="font-semibold">{{ user.username }}</span>
-      </div>
-    </td>
-
-    <td class="p-3">
-      <select v-model="user.role" @change="updateUserPermissions(user)"
-              :disabled="user.username === 'admin'"
-              class="px-3 py-1 border rounded text-xs"
-              :class="{ 'cursor-not-allowed bg-gray-100': user.username === 'admin' }">
-        <option value="admin">👑 管理员</option>
-        <option value="user">👤 普通用户</option>
-      </select>
-    </td>
-
-    <td class="p-3">
-      <select v-model="user.file_permission" @change="updateUserPermissions(user)"
-              :disabled="user.username === 'admin'"
-              class="px-3 py-1 border rounded text-xs"
-              :class="{ 'cursor-not-allowed bg-gray-100': user.username === 'admin' }">
-        <option value="readonly">👁️ 只读</option>
-        <option value="readwrite">✏️ 读写</option>
-        <option value="fullcontrol">🔓 完全控制</option>
-      </select>
-    </td>
-
-    <td class="p-3">
-      <select v-model="user.node_access.type" @change="updateUserNodeAccess(user)"
-              :disabled="user.username === 'admin'"
-              class="px-3 py-1 border rounded text-xs"
-              :class="{ 'cursor-not-allowed bg-gray-100': user.username === 'admin' }">
-        <option value="all">✓ 所有节点</option>
-        <option value="groups">按分组</option>
-        <option value="custom">自定义</option>
-      </select>
-    </td>
-
-    <td class="p-3">
-      <div v-if="user.username === 'admin'" class="flex gap-2">
-        <button class="px-3 py-1 bg-gray-300 text-gray-500 rounded text-xs cursor-not-allowed">
-          系统管理员
-        </button>
-      </div>
-      <div v-else class="flex gap-2">
-        <button @click="openUserAccessDetail(user)" class="px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600">
-          编辑
-        </button>
-        <button @click="deleteUser(window, user)" class="px-3 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600">
-          删除
-        </button>
-      </div>
-    </td>
-  </tr>
-</tbody>
-                </table>
-              </div>
-              </div>
-
-              <!-- 权限类型说明 -->
-              <div class="bg-white rounded-lg shadow border p-6 mb-6">
-                <h4 class="font-bold text-lg mb-4">权限说明</h4>
-                <div class="grid grid-cols-3 gap-4">
-                  <div class="border rounded-lg p-4">
-                    <div class="text-3xl mb-2">👁️</div>
-                    <div class="font-semibold mb-1">只读权限</div>
-                    <div class="text-xs text-gray-600">
-                      • 查看文件列表<br>
-                      • 下载文件<br>
-                      • 查看系统信息<br>
-                      • 不能修改或删除
-                    </div>
-                  </div>
-
-                  <div class="border rounded-lg p-4">
-                    <div class="text-3xl mb-2">✏️</div>
-                    <div class="font-semibold mb-1">读写权限</div>
-                    <div class="text-xs text-gray-600">
-                      • 所有只读权限<br>
-                      • 上传文件<br>
-                      • 创建文件夹<br>
-                      • 重命名文件<br>
-                      • 删除自己的文件
-                    </div>
-                  </div>
-
-                  <div class="border rounded-lg p-4">
-                    <div class="text-3xl mb-2">🔓</div>
-                    <div class="font-semibold mb-1">完全控制</div>
-                    <div class="text-xs text-gray-600">
-                      • 所有读写权限<br>
-                      • 删除任何文件<br>
-                      • 修改权限<br>
-                      • 系统配置<br>
-                      • 用户管理
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 节点分组标签页 -->
-  <div v-if="window.permissionTab === 'groups'">
-    <div class="bg-white rounded-lg shadow border p-6">
-      <div class="flex justify-between items-center mb-4">
-        <h4 class="font-bold text-lg">节点分组管理</h4>
-        <button @click="openCreateGroupDialog(window)"
-                class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
-          + 创建分组
-        </button>
-      </div>
-
-      <!-- 分组列表 -->
-      <div class="space-y-3">
-        <div v-for="group in window.groups" :key="group.id"
-             class="border rounded-lg p-4 hover:bg-gray-50">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-3">
-              <span class="text-3xl">{{ group.icon }}</span>
-              <div>
-                <div class="font-semibold">{{ group.name }}</div>
-                <div class="text-xs text-gray-600">{{ group.description }}</div>
-                <div class="text-xs text-gray-500 mt-1">
-                  包含 {{ group.nodes.length }} 个节点
-                </div>
-              </div>
-            </div>
-            <div class="flex gap-2">
-              <button @click="openEditGroupDialog(window, group)"
-                      class="px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600">
-                编辑
-              </button>
-              <button @click="deleteNodeGroup(window, group)"
-                      class="px-3 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600">
-                删除
-              </button>
-            </div>
-          </div>
-
-          <!-- 节点列表 -->
-          <div v-if="group.nodes.length > 0" class="mt-3 pt-3 border-t">
-            <div class="flex flex-wrap gap-2">
-              <span v-for="nodeId in group.nodes" :key="nodeId"
-                    class="px-2 py-1 bg-gray-100 rounded text-xs">
-                🖥️ {{ getNodeName(nodeId) }}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+    <button @click="window.permissionTab = 'node-access'"
+            :class="window.permissionTab === 'node-access' ? 'bg-white border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'"
+            class="px-6 py-3 font-semibold transition">
+        🔐 节点访问控制
+    </button>
+    <button @click="window.permissionTab = 'audit'"
+            :class="window.permissionTab === 'audit' ? 'bg-white border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'"
+            class="px-6 py-3 font-semibold transition">
+        📋 审计日志
+    </button>
 </div>
 
-              <!-- 节点访问控制 -->
-              <div class="bg-white rounded-lg shadow border p-6">
-  <h4 class="font-bold text-lg mb-4">节点访问控制</h4>
-  <div class="space-y-3">
+    <!-- ========== 2. 用户管理标签页 ========== -->
+    <div v-if="window.permissionTab === 'users'" class="flex-1 overflow-auto p-6">
+        <!-- 顶部按钮 -->
+        <button @click="window.showUserDialog = true">
+            ➕ 添加用户
+        </button>
 
-    <div v-for="node in window.nodes" :key="node.id"
-         class="flex items-center justify-between p-4 border rounded-lg">
-      <div class="flex items-center gap-3">
-        <div class="text-3xl">🖥️</div>
-        <div>
-          <div class="font-semibold">{{ node.name }}</div>
-          <div class="text-xs text-gray-600">{{ node.ip }}:{{ node.port }}</div>
+
+        <!-- 用户列表表格 -->
+<div class="bg-white rounded-lg shadow border mt-4">
+    <table class="w-full">
+        <thead class="bg-gray-50 border-b">
+            <tr>
+                <th class="text-left p-4 font-semibold text-gray-700">用户名</th>
+                <th class="text-left p-4 font-semibold text-gray-700">角色</th>
+                <th class="text-left p-4 font-semibold text-gray-700">邮箱</th>
+                <th class="text-left p-4 font-semibold text-gray-700">状态</th>
+                <th class="text-left p-4 font-semibold text-gray-700">操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr v-for="user in window.users" :key="user.id" class="border-b hover:bg-gray-50">
+                <td class="p-4">
+                    <div class="font-semibold text-gray-800">{{ user.username }}</div>
+                </td>
+                <td class="p-4">
+                    <span class="px-3 py-1 rounded-full text-xs font-semibold"
+                          :class="user.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'">
+                        {{ user.role === 'admin' ? '管理员' : user.role === 'user' ? '普通用户' : '访客' }}
+                    </span>
+                </td>
+                <td class="p-4 text-sm text-gray-600">{{ user.email || '-' }}</td>
+                <td class="p-4">
+                    <span class="px-3 py-1 rounded-full text-xs font-semibold"
+                          :class="user.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'">
+                        {{ user.status === 'active' ? '正常' : '已禁用' }}
+                    </span>
+                </td>
+                <td class="p-4">
+                    <div class="flex gap-2">
+                        <button @click="editUser(window, user)"
+                                class="px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600">
+                            编辑
+                        </button>
+                        <button @click="deleteUser(window, user.id)"
+                                class="px-3 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600">
+                            删除
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+        <!-- 用户对话框 -->
+<div v-if="window.showUserDialog" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
+        <div class="px-6 py-4 border-b bg-gradient-to-r from-blue-500 to-purple-600 text-white">
+            <h3 class="text-xl font-bold">{{ window.editingUser ? '编辑用户' : '添加用户' }}</h3>
         </div>
-      </div>
-      <div class="flex items-center gap-2">
-        <span class="text-xs text-gray-600">访问策略:</span>
-        <select v-model="window.nodePolicies[node.id]"
-                @change="updateNodePolicy(node.id, $event.target.value)"
-                class="px-3 py-1 border rounded text-sm">
-          <option value="all_users">所有用户</option>
-          <option value="admin_only">仅管理员</option>
-          <option value="whitelist">白名单用户</option>
-          <option value="disabled">禁止访问</option>
-        </select>
-      </div>
+
+        <form @submit.prevent="createUser(window)" class="p-6 space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">用户名</label>
+                <input v-model="window.userForm.username"
+                       placeholder="请输入用户名"
+                       required
+                       class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">邮箱</label>
+                <input v-model="window.userForm.email"
+                       type="email"
+                       placeholder="请输入邮箱"
+                       class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">密码</label>
+                <input v-model="window.userForm.password"
+                       type="password"
+                       placeholder="请输入密码"
+                       required
+                       class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">角色</label>
+                <select v-model="window.userForm.role"
+                        class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                    <option value="admin">管理员</option>
+                    <option value="user">普通用户</option>
+                    <option value="guest">访客</option>
+                </select>
+            </div>
+
+            <div class="flex gap-3 pt-4">
+                <button type="submit"
+                        class="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-semibold">
+                    保存
+                </button>
+                <button type="button"
+                        @click="window.showUserDialog = false"
+                        class="flex-1 px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 font-semibold">
+                    取消
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
     </div>
 
+    <!-- ========== 3. 节点分组标签页 ========== -->
+    <div v-if="window.permissionTab === 'node-groups'" class="flex-1 overflow-auto p-6">
+        <!-- 顶部按钮 -->
+        <button @click="window.showGroupDialog = true">
+            ➕ 新建分组
+        </button>
 
-
-
+        <!-- 分组卡片网格 -->
+        <div class="grid grid-cols-3 gap-4">
+            <div v-for="group in window.nodeGroups" class="card">
+                <!-- 分组图标+名称 -->
+                <div class="flex items-center gap-2">
+                    <span class="text-3xl">{{ group.icon }}</span>
+                    <div>
+                        <div class="font-bold">{{ group.group_name }}</div>
+                        <div class="text-xs">{{ group.description }}</div>
+                    </div>
+                    <div class="color-badge" :style="{backgroundColor: group.color}"></div>
                 </div>
-              </div>
 
-              <!-- 提示信息 -->
-              <div class="mt-6 bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded">
-                <div class="flex items-start gap-3">
-                  <span class="text-2xl">⚠️</span>
-                  <div class="text-sm text-yellow-800">
-                    <p class="font-semibold mb-1">权限管理注意事项:</p>
-                    <ul class="list-disc list-inside space-y-1">
-                      <li>修改权限后立即生效,请谨慎操作</li>
-                      <li>建议定期审查用户权限,确保安全</li>
-                      <li>至少保留一个管理员账号</li>
-                      <li>访客账号建议仅授予只读权限</li>
-                    </ul>
-                  </div>
+                <!-- 包含的节点列表 -->
+                <div>
+                    <div class="text-xs mb-1">包含节点:</div>
+                    <span v-for="nodeId in group.node_ids" class="badge">
+                        {{ getNodeName(window, nodeId) }}
+                    </span>
                 </div>
-              </div>
+
+                <!-- 操作按钮 -->
+                <button @click="editNodeGroup(window, group)">编辑</button>
+                <button @click="deleteNodeGroup(window, group.group_id)">删除</button>
             </div>
-          </div>
+        </div>
+
+
+        <!-- 分组对话框 -->
+<div v-if="window.showGroupDialog" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="px-6 py-4 border-b bg-gradient-to-r from-green-500 to-teal-600 text-white">
+            <h3 class="text-xl font-bold">{{ window.editingGroup ? '编辑分组' : '新建分组' }}</h3>
+        </div>
+
+        <form @submit.prevent="createNodeGroup(window)" class="p-6 space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">分组名称</label>
+                <input v-model="window.groupForm.group_name"
+                       placeholder="请输入分组名称"
+                       required
+                       class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 outline-none">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">描述</label>
+                <textarea v-model="window.groupForm.description"
+                          placeholder="请输入描述"
+                          rows="2"
+                          class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 outline-none"></textarea>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">选择节点</label>
+                <div class="border rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
+                    <label v-for="node in window.nodes" :key="node.id"
+                           class="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
+                        <input type="checkbox"
+                               :value="node.id"
+                               v-model="window.groupForm.node_ids"
+                               class="h-4 w-4">
+                        <span>{{ node.name }}</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">图标</label>
+                    <select v-model="window.groupForm.icon"
+                            class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 outline-none">
+                        <option value="🔥">🔥 核心</option>
+                        <option value="💾">💾 备份</option>
+                        <option value="🏠">🏠 本地</option>
+                        <option value="📦">📦 存档</option>
+                        <option value="☁️">☁️ 云端</option>
+                        <option value="⚡">⚡ 高性能</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">颜色</label>
+                    <input type="color"
+                           v-model="window.groupForm.color"
+                           class="w-full h-10 px-2 border rounded-lg cursor-pointer">
+                </div>
+            </div>
+
+            <div class="flex gap-3 pt-4">
+                <button type="submit"
+                        class="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 font-semibold">
+                    保存
+                </button>
+                <button type="button"
+                        @click="window.showGroupDialog = false"
+                        class="flex-1 px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 font-semibold">
+                    取消
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+    </div>
+
+    <!-- ========== 4. 节点访问控制标签页 ========== -->
+    <div v-if="window.permissionTab === 'node-access'" class="flex-1 overflow-auto p-6">
+        <!-- 用户选择 -->
+        <select @change="loadUserNodeAccess(window, $event.target.value)">
+            <option value="">选择用户...</option>
+            <option v-for="user in window.users" :value="user.id">
+                {{ user.username }}
+            </option>
+        </select>
+
+        <!-- 权限配置表单 (v-if="window.selectedUserId") -->
+        <div class="permission-form">
+            <h4>访问权限类型</h4>
+            <select v-model="window.accessForm.type">
+                <option value="all">所有节点</option>
+                <option value="none">无访问权限</option>
+                <option value="group_based">基于分组</option>
+                <option value="custom">自定义</option>
+            </select>
+
+            <!-- 如果选择了 group_based -->
+            <div v-if="window.accessForm.type === 'group_based'">
+                <h5>选择允许访问的分组:</h5>
+                <label v-for="group in window.nodeGroups">
+                    <input type="checkbox"
+                           :value="group.group_id"
+                           v-model="window.accessForm.allowed_groups">
+                    <span>{{ group.icon }} {{ group.group_name }}</span>
+                    <span class="text-xs">({{ group.node_ids.length }}个节点)</span>
+                </label>
+            </div>
+
+            <!-- 额外单独授权的节点 -->
+            <div>
+                <h5>额外授权节点:</h5>
+                <label v-for="node in window.nodes">
+                    <input type="checkbox"
+                           :value="node.id"
+                           v-model="window.accessForm.allowed_nodes">
+                    {{ node.name }}
+                </label>
+            </div>
+
+            <!-- 明确拒绝的节点 -->
+            <div>
+                <h5>拒绝访问的节点(优先级最高):</h5>
+                <label v-for="node in window.nodes">
+                    <input type="checkbox"
+                           :value="node.id"
+                           v-model="window.accessForm.denied_nodes">
+                    {{ node.name }}
+                </label>
+            </div>
+
+            <button @click="saveUserNodeAccess(window)">💾 保存权限</button>
+        </div>
+    </div>
+
+    <!-- ========== 5. 审计日志标签页 ========== -->
+    <div v-if="window.permissionTab === 'audit'" class="flex-1 overflow-auto p-6">
+        <!-- 筛选条件 -->
+        <div class="filters">
+            <input placeholder="用户名">
+            <select>
+                <option value="">所有操作</option>
+                <option value="login">登录</option>
+                <option value="access_node">访问节点</option>
+                <option value="delete_file">删除文件</option>
+            </select>
+            <input type="date" placeholder="开始日期">
+            <input type="date" placeholder="结束日期">
+            <button @click="loadAuditLogs(window, {...})">🔍 查询</button>
+        </div>
+
+        <!-- 日志列表 -->
+        <table>
+            <thead>
+                <tr>
+                    <th>时间</th>
+                    <th>用户</th>
+                    <th>操作</th>
+                    <th>目标</th>
+                    <th>节点</th>
+                    <th>IP地址</th>
+                    <th>状态</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr v-for="log in window.auditLogs">
+                    <td>{{ log.timestamp }}</td>
+                    <td>{{ log.username }}</td>
+                    <td>{{ log.action }}</td>
+                    <td>{{ log.target }}</td>
+                    <td>{{ log.node_id }}</td>
+                    <td>{{ log.ip_address }}</td>
+                    <td :class="log.status === 'success' ? 'text-green-600' : 'text-red-600'">
+                        {{ log.status }}
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+</div>
+
 
           <!-- 加密管理窗口 -->
           <div v-if="window.type === 'encryption'" class="h-full flex flex-col">
-
             <div class="px-6 py-4 border-b bg-gradient-to-r from-indigo-50 to-purple-50">
               <h3 class="text-xl font-bold flex items-center gap-2">
                 <span class="text-3xl">🔐</span>
@@ -1401,245 +1473,608 @@
         </div>
       </div>
 
-     <div class="taskbar">
-  <div class="taskbar-item" @click.stop="toggleStartMenu">
-    <span class="text-xl">🚀</span>
-    <span class="ml-2 font-semibold">NAS Center</span>
-  </div>
-
-  <div v-for="window in windows.filter(w => !w.minimized)"
-        :key="window.id"
-        @click="focusWindow(window.id)"
-        :class="['taskbar-item', { active: window.zIndex === maxZIndex }]">
-    <span>{{ window.icon }}</span>
-    <span class="ml-2">{{ window.title }}</span>
-  </div>
-
-  <div class="ml-auto flex items-center gap-4 text-white text-sm">
-
-    <span>⏰ {{ currentTime }}</span>
-
-    <div v-if="showStartMenu" class="start-menu">
-      <div class="start-menu-header">
-        <div class="flex items-center justify-between">
-          <div>
-            <div class="text-xl font-bold">NAS Center</div>
-            <div class="text-sm opacity-90 mt-1">主控管理中心</div>
-          </div>
-          <div class="text-3xl">🚀</div>
-        </div>
-      </div>
-
-      <div class="start-menu-section">
-        <div class="start-menu-section-title">快速访问</div>
-        <div class="start-menu-item" @click="openNodeManagement(); showStartMenu = false">
-          <span class="text-xl">🖥️</span>
-          <div class="flex-1">
-            <div class="font-semibold">节点管理</div>
-            <div class="text-xs opacity-70">管理所有NAS节点</div>
-          </div>
-        </div>
-        <div class="start-menu-item" @click="openSystemMonitor(); showStartMenu = false">
-          <span class="text-xl">📊</span>
-          <div class="flex-1">
-            <div class="font-semibold">系统监控</div>
-            <div class="text-xs opacity-70">实时硬件监控</div>
-          </div>
-        </div>
-        <div class="start-menu-item" @click="openSpaceAllocation(); showStartMenu = false">
-          <span class="text-xl">📦</span>
-          <div class="flex-1">
-            <div class="font-semibold">空间分配</div>
-            <div class="text-xs opacity-70">跨节点文件分配</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="h-px bg-white/10 my-2"></div>
-
-      <div class="start-menu-section">
-        <div class="start-menu-section-title">安全管理</div>
-        <div class="start-menu-item" @click="openEncryptionManager(); showStartMenu = false">
-          <span class="text-xl">🔐</span>
-          <div class="flex-1">
-            <div class="font-semibold">加密管理</div>
-            <div class="text-xs opacity-70">磁盘和文件加密</div>
-          </div>
-        </div>
-        <div class="start-menu-item" @click="openPermissionSettings(); showStartMenu = false">
-          <span class="text-xl">🔒</span>
-          <div class="flex-1">
-            <div class="font-semibold">权限设置</div>
-            <div class="text-xs opacity-70">用户访问控制</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="h-px bg-white/10 my-2"></div>
-
-      <div class="start-menu-section">
-        <div class="start-menu-section-title">高级功能</div>
-        <div class="start-menu-item" @click="openECConfig(); showStartMenu = false">
-          <span class="text-xl">🛡️</span>
-          <div class="flex-1">
-            <div class="font-semibold">纠删码配置</div>
-            <div class="text-xs opacity-70">数据冗余保护</div>
-          </div>
-        </div>
-        <div class="start-menu-item start-menu-item-disabled">
-          <span class="text-xl">📡</span>
-          <div class="flex-1">
-            <div class="font-semibold">远程同步</div>
-            <div class="text-xs opacity-70">即将推出</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="h-px bg-white/10 my-2"></div>
-      <div class="start-menu-section">
-        <div class="start-menu-section-title">
-          {{ currentUser?.username || '用户' }} {{ currentUser?.role === 'admin' ? '(管理员)' : '' }}
-        </div>
-
-        <div class="start-menu-item" @click="openUserProfile(); showStartMenu = false">
-          <span class="text-xl">👤</span>
-          <div class="flex-1">
-            <div class="font-semibold">个人信息</div>
-            <div class="text-xs opacity-70">{{ currentUser?.email || '无邮箱' }}</div>
-          </div>
-        </div>
-
-        <div class="start-menu-item" @click="openChangePassword(); showStartMenu = false">
-          <span class="text-xl">🔑</span>
-          <div class="flex-1">
-            <div class="font-semibold">修改密码</div>
-          </div>
-        </div>
-
-        <div v-if="currentUser?.role === 'admin'" class="start-menu-item" @click="openUserManagement(); showStartMenu = false">
-          <span class="text-xl">👥</span>
-          <div class="flex-1">
-            <div class="font-semibold">用户管理</div>
-          </div>
-        </div>
-
-        <div class="start-menu-item" @click="logout(); showStartMenu = false">
-          <span class="text-xl">🚪</span>
-          <div class="flex-1">
-            <div class="font-semibold" style="color: #f87171;">退出登录</div>
-          </div>
-        </div>
-      </div>
-      <div class="h-px bg-white/10 my-2"></div>
-
-      <div class="start-menu-section">
-        <div class="start-menu-item" @click="showStartMenu = false">
-          <span class="text-xl">ℹ️</span>
-          <span>关于系统</span>
-        </div>
-        <div class="start-menu-item" @click="showStartMenu = false">
-          <span class="text-xl">❓</span>
-          <span>帮助文档</span>
-        </div>
-      </div>
-    </div>
-     </div>
-
-  </div>
-
-    <!-- 创建/编辑分组对话框 -->
-<div v-if="showGroupDialog"
-     class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[2000]"
-     @click.self="closeGroupDialog()">
-  <div class="bg-white rounded-lg shadow-xl w-[600px] max-h-[80vh] flex flex-col">
-    <!-- 对话框标题 -->
-    <div class="flex justify-between items-center p-6 border-b">
-      <h3 class="text-xl font-bold">
-        {{ groupDialogMode === 'create' ? '创建节点分组' : '编辑节点分组' }}
-      </h3>
-      <button @click="closeGroupDialog()" class="text-gray-500 hover:text-gray-700 text-2xl">
-        ×
-      </button>
-    </div>
-
-    <!-- 对话框内容 -->
-    <div class="flex-1 overflow-auto p-6">
-      <!-- 分组名称 -->
-      <div class="mb-4">
-        <label class="block text-sm font-semibold mb-2">分组名称 *</label>
-        <input v-model="groupForm.name"
-               type="text"
-               placeholder="例如: 开发环境"
-               class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
-      </div>
-
-      <!-- 分组描述 -->
-      <div class="mb-4">
-        <label class="block text-sm font-semibold mb-2">分组描述</label>
-        <textarea v-model="groupForm.description"
-                  placeholder="简要描述这个分组的用途"
-                  class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-                  rows="3"></textarea>
-      </div>
-
-      <!-- 分组图标 -->
-      <div class="mb-4">
-        <label class="block text-sm font-semibold mb-2">分组图标</label>
-        <div class="flex gap-2">
-          <button v-for="icon in ['📁', '🖥️', '☁️', '🔧', '🏢', '🌐', '💻', '⚙️']"
-                  :key="icon"
-                  @click="groupForm.icon = icon"
-                  :class="groupForm.icon === icon ? 'ring-2 ring-blue-500' : ''"
-                  class="w-12 h-12 text-2xl border rounded-lg hover:bg-gray-100">
-            {{ icon }}
-          </button>
-        </div>
-      </div>
-
-      <!-- 选择节点 -->
-      <div class="mb-4">
-        <label class="block text-sm font-semibold mb-2">包含的节点</label>
-        <div class="space-y-2 max-h-60 overflow-auto border rounded-lg p-3">
-          <label v-for="node in availableNodes" :key="node.id"
-                 class="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
-            <input type="checkbox"
-                   :value="node.id"
-                   v-model="groupForm.nodes"
-                   class="w-4 h-4">
-            <span class="text-2xl">🖥️</span>
-            <div class="flex-1">
-              <div class="font-semibold text-sm">{{ node.name }}</div>
-              <div class="text-xs text-gray-600">{{ node.ip }}:{{ node.port }}</div>
-            </div>
-          </label>
-        </div>
-        <div class="text-xs text-gray-600 mt-2">
-          已选择 {{ groupForm.nodes.length }} 个节点
-        </div>
-      </div>
-    </div>
-
-    <!-- 对话框按钮 -->
-    <div class="flex justify-end gap-3 p-6 border-t">
-      <button @click="closeGroupDialog()"
-              class="px-4 py-2 border rounded-lg hover:bg-gray-100">
-        取消
-      </button>
-      <button @click="saveNodeGroup()"
-              class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
-        {{ groupDialogMode === 'create' ? '创建' : '保存' }}
-      </button>
-    </div>
-  </div>
+      <div class="taskbar">
+        <div class="taskbar-item" @click.stop="toggleStartMenu">
+  <span class="text-xl">🚀</span>
+  <span class="ml-2 font-semibold">NAS Center</span>
 </div>
 
-      </div></div>
+        <div v-for="window in windows.filter(w => !w.minimized)"
+             :key="window.id"
+             @click="focusWindow(window.id)"
+             :class="['taskbar-item', { active: window.zIndex === maxZIndex }]">
+          <span>{{ window.icon }}</span>
+          <span class="ml-2">{{ window.title }}</span>
+        </div>
+
+        <div class="ml-auto flex items-center gap-4 text-white text-sm">
+          <span>⏰ {{ currentTime }}</span>
+        </div>
+      </div>
+
+       <!-- 👇 在这里添加开始菜单 -->
+      <div v-if="showStartMenu" class="start-menu">
+        <div class="start-menu-header">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-xl font-bold">NAS Center</div>
+              <div class="text-sm opacity-90 mt-1">主控管理中心</div>
+            </div>
+            <div class="text-3xl">🚀</div>
+          </div>
+        </div>
+
+        <div class="start-menu-section">
+          <div class="start-menu-section-title">快速访问</div>
+          <div class="start-menu-item" @click="openNodeManagement; showStartMenu = false">
+            <span class="text-xl">🖥️</span>
+            <div class="flex-1">
+              <div class="font-semibold">节点管理</div>
+              <div class="text-xs opacity-70">管理所有NAS节点</div>
+            </div>
+          </div>
+          <div class="start-menu-item" @click="openSystemMonitor; showStartMenu = false">
+            <span class="text-xl">📊</span>
+            <div class="flex-1">
+              <div class="font-semibold">系统监控</div>
+              <div class="text-xs opacity-70">实时硬件监控</div>
+            </div>
+          </div>
+          <div class="start-menu-item" @click="openSpaceAllocation; showStartMenu = false">
+            <span class="text-xl">📦</span>
+            <div class="flex-1">
+              <div class="font-semibold">空间分配</div>
+              <div class="text-xs opacity-70">跨节点文件分配</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="h-px bg-white/10 my-2"></div>
+
+        <div class="start-menu-section">
+          <div class="start-menu-section-title">安全管理</div>
+          <div class="start-menu-item" @click="openEncryptionManager; showStartMenu = false">
+            <span class="text-xl">🔐</span>
+            <div class="flex-1">
+              <div class="font-semibold">加密管理</div>
+              <div class="text-xs opacity-70">磁盘和文件加密</div>
+            </div>
+          </div>
+          <div class="start-menu-item" @click="openPermissionSettings; showStartMenu = false">
+            <span class="text-xl">🔒</span>
+            <div class="flex-1">
+              <div class="font-semibold">权限设置</div>
+              <div class="text-xs opacity-70">用户访问控制</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="h-px bg-white/10 my-2"></div>
+
+        <div class="start-menu-section">
+          <div class="start-menu-section-title">高级功能</div>
+          <div class="start-menu-item" @click="openECConfig; showStartMenu = false">
+            <span class="text-xl">🛡️</span>
+            <div class="flex-1">
+              <div class="font-semibold">纠删码配置</div>
+              <div class="text-xs opacity-70">数据冗余保护</div>
+            </div>
+          </div>
+          <div class="start-menu-item start-menu-item-disabled">
+            <span class="text-xl">📡</span>
+            <div class="flex-1">
+              <div class="font-semibold">远程同步</div>
+              <div class="text-xs opacity-70">即将推出</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="h-px bg-white/10 my-2"></div>
+
+        <div class="start-menu-section">
+          <div class="start-menu-item" @click="showStartMenu = false">
+            <span class="text-xl">ℹ️</span>
+            <span>关于系统</span>
+          </div>
+          <div class="start-menu-item" @click="showStartMenu = false">
+            <span class="text-xl">❓</span>
+            <span>帮助文档</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
 
 
-  <script src="app.js"></script>
+
+
+  <script>
+
+
+    axios.defaults.withCredentials = true;
+const { createApp } = Vue;
+
+createApp({
+  data() {
+    return {
+      windows: [],
+      nextWindowId: 1,
+      maxZIndex: 100,
+      currentTime: '',
+      dragWindow: null,
+      dragOffset: { x: 0, y: 0 },
+      apiBaseUrl: 'http://127.0.0.1:8080',
+      showStartMenu: false,
+      showNavbar: false,
+      currentNodeName: 'NAS Center 主控',
+      currentUser: 'Guest'
+    };
+  },
+  mounted() {
+    this.updateTime();
+    setInterval(() => this.updateTime(), 1000);
+    this.checkAuth();
+    this.openNodeManagement();
+  },
+  methods: {
+    async checkAuth() {
+      try {
+        const response = await axios.get(`${this.apiBaseUrl}/api/check-auth`, {
+          withCredentials: true
+        });
+        if (response.data.authenticated) {
+          this.currentUser = response.data.user.username;
+        } else {
+          // 未登录,跳转到登录页
+          window.location.href = '/';
+        }
+      } catch (error) {
+        console.error('检查登录状态失败:', error);
+        // 未登录,跳转到登录页
+        window.location.href = '/';
+      }
+    },
+
+    async logout() {
+      if (confirm('确定要退出登录吗?')) {
+        try {
+          await axios.post(`${this.apiBaseUrl}/api/logout`, {}, {
+            withCredentials: true
+          });
+          alert('已退出登录');
+          window.location.href = '/';
+        } catch (error) {
+          console.error('退出登录失败:', error);
+          alert('退出登录失败');
+        }
+      }
+    },
+
+    updateTime() {
+      const now = new Date();
+      this.currentTime = now.toLocaleTimeString('zh-CN');
+    },
+
+    createWindow(config) {
+      const win = {
+        id: this.nextWindowId++,
+        x: 100 + (this.windows.length * 30),
+        y: 50 + (this.windows.length * 30),
+        width: config.width || 900,
+        height: config.height || 600,
+        zIndex: this.maxZIndex++,
+        maximized: false,
+        minimized: false,
+        ...config
+      };
+      this.windows.push(win);
+      return win;
+    },
+
+    closeWindow(id) {
+      const index = this.windows.findIndex(w => w.id === id);
+      if (index !== -1) {
+        this.windows.splice(index, 1);
+      }
+    },
+
+    minimizeWindow(id) {
+      const win = this.windows.find(w => w.id === id);
+      if (win) win.minimized = true;
+    },
+
+    toggleMaximize(id) {
+      const win = this.windows.find(w => w.id === id);
+      if (win) win.maximized = !win.maximized;
+    },
+
+    focusWindow(id) {
+      const win = this.windows.find(w => w.id === id);
+      if (win) {
+        win.minimized = false;
+        win.zIndex = this.maxZIndex++;
+      }
+    },
+
+    startDrag(event, window) {
+      if (window.maximized) return;
+      this.dragWindow = window;
+      this.dragOffset.x = event.clientX - window.x;
+      this.dragOffset.y = event.clientY - window.y;
+
+      document.addEventListener('mousemove', this.onDrag);
+      document.addEventListener('mouseup', this.stopDrag);
+    },
+
+    onDrag(event) {
+      if (!this.dragWindow) return;
+      this.dragWindow.x = event.clientX - this.dragOffset.x;
+      this.dragWindow.y = event.clientY - this.dragOffset.y;
+    },
+
+    stopDrag() {
+      this.dragWindow = null;
+      document.removeEventListener('mousemove', this.onDrag);
+      document.removeEventListener('mouseup', this.stopDrag);
+    },
+
+    closeAllMenus() {
+      this.showStartMenu = false;
+    },
+
+    // ============ 节点管理 ============
+    openNodeManagement() {
+      const win = this.createWindow({
+        type: 'nodes',
+        title: '节点管理',
+        icon: '🖥️',
+        width: 1200,
+        height: 700,
+        nodes: [],
+        stats: null,
+        loading: false,
+        selectedNodeDisks: null
+      });
+      this.loadNodesData(win);
+    },
+
+    async loadNodesData(window) {
+      window.loading = true;
+      try {
+        const nodesRes = await axios.get(`${this.apiBaseUrl}/api/nodes`);
+        window.nodes = nodesRes.data;
+        const statsRes = await axios.get(`${this.apiBaseUrl}/api/stats`);
+        window.stats = {
+          total: statsRes.data.total_nodes,
+          online: statsRes.data.online_nodes,
+          offline: statsRes.data.offline_nodes,
+          warning: statsRes.data.warning_nodes
+        };
+      } catch (error) {
+        console.error('加载失败:', error);
+        alert('无法连接到后端 API,请确保 Flask 服务运行在 http://127.0.0.1:8080');
+      } finally {
+        window.loading = false;
+      }
+    },
+
+    refreshNodes(window) {
+      this.loadNodesData(window);
+    },
+
+    accessNode(node) {
+      const url = `http://${node.ip}:${node.port}`;
+
+      if (node.status === 'offline') {
+        alert(`节点 ${node.name} 当前离线,无法访问`);
+        return;
+      }
+
+      const confirmed = confirm(
+        `访问节点后将在新窗口打开\n顶部导航栏可帮助您返回主控中心\n\n` +
+        `节点名称: ${node.name}\n` +
+        `访问地址: ${url}\n\n` +
+        `是否继续?`
+      );
+
+      if (confirmed) {
+        // 显示导航栏
+        this.showNavbar = true;
+        this.currentNodeName = node.name;
+
+        // 在新窗口打开
+        window.open(url, '_blank');
+      }
+    },
+
+    async viewNodeDisks(window, node) {
+      if (node.status === 'offline') {
+        alert(`节点 ${node.name} 当前离线,无法查看磁盘信息`);
+        return;
+      }
+
+      window.selectedNodeDisks = {
+        name: node.name,
+        loading: true,
+        error: null,
+        disks: []
+      };
+
+      try {
+        const response = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/disks`);
+
+        if (response.data.success) {
+          window.selectedNodeDisks.disks = response.data.disks;
+          window.selectedNodeDisks.loading = false;
+        } else {
+          throw new Error(response.data.error || '获取磁盘信息失败');
+        }
+      } catch (error) {
+        console.error('获取磁盘信息失败:', error);
+        window.selectedNodeDisks.error = error.response?.data?.error || error.message || '无法连接到节点';
+        window.selectedNodeDisks.loading = false;
+      }
+    },
+
+    getStatusClass(status) {
+      const classes = {
+        online: 'bg-green-100 text-green-700 border border-green-300',
+        offline: 'bg-gray-100 text-gray-700 border border-gray-300',
+        warning: 'bg-yellow-100 text-yellow-700 border border-yellow-300'
+      };
+      return classes[status] || classes.offline;
+    },
+
+    getStatusText(status) {
+      const texts = { online: '在线', offline: '离线', warning: '未知' };
+      return texts[status] || '未知';
+    },
+
+    // ============ 空间分配 ============
+    openSpaceAllocation() {
+      this.createWindow({
+        type: 'space-allocation',
+        title: '空间分配',
+        icon: '📦',
+        width: 1000,
+        height: 700
+      });
+    },
+
+    // ============ 权限设置 ============
+    openPermissionSettings() {
+      this.createWindow({
+        type: 'permissions',
+        title: '权限管理',
+        icon: '🔒',
+        width: 1200,
+        height: 750,
+
+        // 新增字段
+        permissionTab: 'users',  // 标签页: users/node-groups/node-access/audit
+        users: [],
+        nodeGroups: [],
+        nodes: [],
+        auditLogs: [],
+
+        // 用户管理相关
+        showUserDialog: false,
+        editingUser: null,
+        userForm: {
+          username: '',
+          password: '',
+          email: '',
+          role: 'user'
+        },
+
+        // 分组管理相关
+        showGroupDialog: false,
+        editingGroup: null,
+        groupForm: {
+          group_name: '',
+          description: '',
+          node_ids: [],
+          color: '#3b82f6',
+          icon: '📁'
+        },
+
+        // 权限配置相关
+        selectedUserId: null,
+        accessForm: {
+          type: 'group_based',
+          allowed_groups: [],
+          allowed_nodes: [],
+          denied_nodes: []
+        }
+      });
+
+      // 加载数据
+      this.loadPermissionData(this.windows[this.windows.length - 1]);
+    },
+
+    async loadPermissionData(window) {
+      // 并行加载三个接口
+      const [usersRes, groupsRes, nodesRes] = await Promise.all([
+        axios.get(`${this.apiBaseUrl}/api/users`),
+        axios.get(`${this.apiBaseUrl}/api/node-groups`),
+        axios.get(`${this.apiBaseUrl}/api/nodes`)
+      ]);
+
+      window.users = usersRes.data;
+      window.nodeGroups = groupsRes.data;
+      window.nodes = nodesRes.data;
+    },
+
+    async createUser(window) {
+      await axios.post(`${this.apiBaseUrl}/api/users`, window.userForm);
+      alert('用户创建成功');
+      window.showUserDialog = false;
+      this.loadPermissionData(window);
+      // ✅ 正确的重置方式
+      window.userForm = {
+        username: '',
+        password: '',
+        email: '',
+        role: 'user'
+      };
+    },
+
+    async updateUser(window, userId) {
+      // 实现编辑用户功能
+      await axios.put(`${this.apiBaseUrl}/api/users/${userId}`, window.userForm);
+      alert('用户更新成功');
+      window.showUserDialog = false;
+      this.loadPermissionData(window);
+    },
+
+    async updateNodeGroup(window, groupId) { /* PUT */ },
+
+    async deleteUser(window, userId) {
+      if (confirm('确认删除该用户?')) {
+        await axios.delete(`${this.apiBaseUrl}/api/users/${userId}`);
+        alert('用户已删除');
+        this.loadPermissionData(window);
+      }
+    },
+
+    async createNodeGroup(window) {
+      await axios.post(`${this.apiBaseUrl}/api/node-groups`, window.groupForm);
+      alert('分组创建成功');
+      window.showGroupDialog = false;
+      this.loadPermissionData(window);
+    },
+
+    async deleteNodeGroup(window, groupId) {
+      if (confirm('确认删除该分组?')) {
+        await axios.delete(`${this.apiBaseUrl}/api/node-groups/${groupId}`);
+        alert('分组已删除');
+        this.loadPermissionData(window);
+      }
+    },
+
+    // 辅助方法
+    getNodeName(window, nodeId) {
+      const node = window.nodes.find(n => n.id === nodeId);
+      return node ? node.name : nodeId;
+    },
+
+    editNodeGroup(window, group) {
+      window.editingGroup = group;
+      window.groupForm = { ...group, node_ids: [...group.node_ids] };
+      window.showGroupDialog = true;
+    },
+
+    async loadUserNodeAccess(window, userId) {
+      const res = await axios.get(`${this.apiBaseUrl}/api/users/${userId}/node-access`);
+      window.accessForm = res.data;
+      window.selectedUserId = userId;
+    },
+
+    async saveUserNodeAccess(window) {
+      await axios.put(
+        `${this.apiBaseUrl}/api/users/${window.selectedUserId}/node-access`,
+        window.accessForm
+      );
+      alert('权限已保存');
+    },
+
+    async loadAuditLogs(window, filters = {}) {
+      const params = new URLSearchParams(filters);
+      const res = await axios.get(`${this.apiBaseUrl}/api/audit-logs?${params}`);
+      window.auditLogs = res.data;
+    },
+
+    // ============ 加密管理 ============
+    openEncryptionManager() {
+      this.createWindow({
+        type: 'encryption',
+        title: '加密管理',
+        icon: '🔐',
+        width: 1000,
+        height: 700,
+        encryptionTab: 'disk'  // 默认显示磁盘加密标签页
+      });
+    },
+
+    // ============ 纠删码配置 ============
+    openECConfig() {
+      alert('纠删码配置功能开发中...');
+    },
+
+    // ============ 系统监控 ============
+    openSystemMonitor() {
+      const win = this.createWindow({
+        type: 'system-monitor',
+        title: '系统监控',
+        icon: '📊',
+        width: 1000,
+        height: 700,
+        // 👇 新增状态
+        monitorView: 'overview', // 'overview' 或 'detail'
+        nodes: [],
+        selectedNodeId: null,
+        selectedNodeStats: null,
+        loading: true,
+      });
+      this.loadMonitorOverview(win); // 调用新的加载函数
+      this.showStartMenu = false;
+    },
+
+    async loadMonitorOverview(window) {
+      window.loading = true;
+      try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes`);
+        // 只显示在线的节点
+        window.nodes = res.data.filter(n => n.status === 'online');
+      } catch (error) {
+        console.error('加载监控节点列表失败:', error);
+        alert('加载监控节点列表失败');
+      } finally {
+        window.loading = false;
+      }
+    },
+
+    async selectNodeForMonitor(window, node) {
+      window.loading = true;
+      window.selectedNodeId = node.id;
+      window.title = `系统监控 - ${node.name}`; // 动态改变窗口标题
+      try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/monitor-stats`);
+        window.selectedNodeStats = res.data;
+        window.monitorView = 'detail'; // 切换到详情视图
+      } catch (error) {
+        console.error('加载节点详细监控数据失败:', error);
+        alert('加载节点详细监控数据失败');
+        window.selectedNodeId = null;
+      } finally {
+        window.loading = false;
+      }
+    },
+
+    returnToMonitorOverview(window) {
+      window.monitorView = 'overview';
+      window.selectedNodeId = null;
+      window.selectedNodeStats = null;
+      window.title = '系统监控'; // 恢复窗口标题
+    },
+
+    toggleStartMenu() {
+      this.showStartMenu = !this.showStartMenu;
+    },
+
+    returnToMainCenter() {
+      this.showNavbar = false;
+      this.currentNodeName = 'NAS Center 主控';
+      alert('已返回主控中心');
+    },
+
+    refreshCurrentNode() {
+      alert(`刷新节点: ${this.currentNodeName}`);
+    }
+  }
+}).mount('#app');
+</script>
 
 </body>
 </html>
-```
-
