@@ -34,6 +34,20 @@ from datetime import datetime, timedelta
 ACCESS_TOKEN_SECRET = 'your-access-token-secret-key'  # 应该和客户端共享
 
 from functools import wraps
+
+def admin_required(f):
+    """要求管理员权限的装饰器"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # 1. 检查是否登录
+        if 'user_id' not in session:
+            return jsonify({"error": "未登录,请先登录"}), 401
+        # 2. 检查是否为 'admin'
+        if session.get('role') != 'admin':
+            return jsonify({"error": "权限不足", "message": "此操作需要管理员权限"}), 403
+        # 3. 权限足够,执行函数
+        return f(*args, **kwargs)
+    return decorated_function
 def login_required(f):
     """要求登录的装饰器"""
     from functools import wraps
@@ -97,9 +111,7 @@ NODES_CONFIG = [
 ]
 
 
-# 文件: 主控中心 app.py
 
-# ... (其他 import 和代码)
 
 def fetch_node_data(node_config, timeout=3):
     """从真实节点获取数据 - [增强版]"""
@@ -237,6 +249,7 @@ def init_db():
     # 👇 新增：插入默认分组
     groups_data = [
         ('group_core', '核心服务器组', '生产环境', '["node-1","node-2"]', '#ef4444', '🔥'),
+        # ⬇️ 修正后，删掉多余的 '["node-5"]' ⬇️
         ('group_local', '本地节点组', '测试开发', '["node-5"]', '#8b5cf6', '🏠')
     ]
 
@@ -251,200 +264,8 @@ def init_db():
     conn.close()
 
 
-# ============================================
-# 节点分组管理 API
-# ============================================
-
-@app.route('/api/node-groups', methods=['GET'])
-@login_required
-def get_node_groups():
-    """获取所有节点分组"""
-    conn = sqlite3.connect('nas_center.db')
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-
-    # 获取所有分组
-    cursor.execute('''
-        SELECT id, name, description, icon, created_at, updated_at
-        FROM node_groups
-        ORDER BY name
-    ''')
-    groups = [dict(row) for row in cursor.fetchall()]
-
-    # 为每个分组获取成员节点
-    for group in groups:
-        cursor.execute('''
-            SELECT node_id 
-            FROM node_group_members 
-            WHERE group_id = ?
-        ''', (group['id'],))
-        group['nodes'] = [row['node_id'] for row in cursor.fetchall()]
-
-    conn.close()
-    return jsonify(groups)
 
 
-@app.route('/api/node-groups', methods=['POST'])
-@login_required
-@admin_required
-def create_node_group():
-    """创建节点分组"""
-    data = request.json
-    name = data.get('name')
-    description = data.get('description', '')
-    icon = data.get('icon', '📁')
-    nodes = data.get('nodes', [])  # 节点ID列表
-
-    if not name:
-        return jsonify({'error': '分组名称不能为空'}), 400
-
-    conn = sqlite3.connect('nas_center.db')
-    cursor = conn.cursor()
-
-    try:
-        # 创建分组
-        cursor.execute('''
-            INSERT INTO node_groups (name, description, icon)
-            VALUES (?, ?, ?)
-        ''', (name, description, icon))
-
-        group_id = cursor.lastrowid
-
-        # 添加节点成员
-        for node_id in nodes:
-            cursor.execute('''
-                INSERT INTO node_group_members (node_id, group_id)
-                VALUES (?, ?)
-            ''', (node_id, group_id))
-
-        conn.commit()
-
-        return jsonify({
-            'success': True,
-            'id': group_id,
-            'message': '分组创建成功'
-        })
-
-    except sqlite3.IntegrityError:
-        conn.rollback()
-        return jsonify({'error': '分组名称已存在'}), 400
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'error': str(e)}), 500
-    finally:
-        conn.close()
-
-
-@app.route('/api/node-groups/<int:group_id>', methods=['PUT'])
-@login_required
-@admin_required
-def update_node_group(group_id):
-    """更新节点分组"""
-    data = request.json
-    name = data.get('name')
-    description = data.get('description')
-    icon = data.get('icon')
-    nodes = data.get('nodes')  # 节点ID列表
-
-    conn = sqlite3.connect('nas_center.db')
-    cursor = conn.cursor()
-
-    try:
-        # 更新分组信息
-        if name or description or icon:
-            updates = []
-            params = []
-
-            if name:
-                updates.append('name = ?')
-                params.append(name)
-            if description is not None:
-                updates.append('description = ?')
-                params.append(description)
-            if icon:
-                updates.append('icon = ?')
-                params.append(icon)
-
-            params.append(group_id)
-
-            cursor.execute(f'''
-                UPDATE node_groups 
-                SET {', '.join(updates)}
-                WHERE id = ?
-            ''', params)
-
-        # 更新节点成员
-        if nodes is not None:
-            # 删除旧成员
-            cursor.execute('DELETE FROM node_group_members WHERE group_id = ?', (group_id,))
-
-            # 添加新成员
-            for node_id in nodes:
-                cursor.execute('''
-                    INSERT INTO node_group_members (node_id, group_id)
-                    VALUES (?, ?)
-                ''', (node_id, group_id))
-
-        conn.commit()
-
-        return jsonify({
-            'success': True,
-            'message': '分组更新成功'
-        })
-
-    except sqlite3.IntegrityError:
-        conn.rollback()
-        return jsonify({'error': '分组名称已存在'}), 400
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'error': str(e)}), 500
-    finally:
-        conn.close()
-
-
-@app.route('/api/node-groups/<int:group_id>', methods=['DELETE'])
-@login_required
-@admin_required
-def delete_node_group(group_id):
-    """删除节点分组"""
-    conn = sqlite3.connect('nas_center.db')
-    cursor = conn.cursor()
-
-    try:
-        # 检查是否有用户正在使用此分组
-        cursor.execute('''
-            SELECT COUNT(*) as count
-            FROM users
-            WHERE json_extract(node_access, '$.type') = 'groups'
-            AND json_extract(node_access, '$.allowed_groups') LIKE ?
-        ''', (f'%{group_id}%',))
-
-        count = cursor.fetchone()[0]
-        if count > 0:
-            return jsonify({
-                'error': f'有 {count} 个用户正在使用此分组,无法删除'
-            }), 400
-
-        # 删除分组(成员会因为 CASCADE 自动删除)
-        cursor.execute('DELETE FROM node_groups WHERE id = ?', (group_id,))
-
-        conn.commit()
-
-        return jsonify({
-            'success': True,
-            'message': '分组删除成功'
-        })
-
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'error': str(e)}), 500
-    finally:
-        conn.close()
-
-
-# ============================================
-# 用户节点权限检查 API
-# ============================================
 
 @app.route('/api/users/<int:user_id>/accessible-nodes', methods=['GET'])
 @login_required
@@ -791,6 +612,7 @@ def delete_user(user_id):
 
 # ========== 节点分组 API ==========
 @app.route('/api/node-groups', methods=['GET'])
+@login_required
 def get_node_groups():
     conn = sqlite3.connect('nas_center.db')
     conn.row_factory = sqlite3.Row
@@ -806,7 +628,7 @@ def get_node_groups():
     return jsonify(groups)
 
 
-# ❌ 缺少这个接口
+
 @app.route('/api/users/<int:user_id>/node-access', methods=['GET'])
 def get_user_node_access(user_id):
     conn = sqlite3.connect('nas_center.db')
@@ -826,6 +648,8 @@ def get_audit_logs():
     return jsonify([])
 
 @app.route('/api/node-groups', methods=['POST'])
+@login_required
+@admin_required
 def create_node_group():
     data = request.json
     group_id = f"group_{int(time.time())}"
@@ -892,6 +716,8 @@ def update_request_status(request_id, status, **kwargs):
 
 # 修改后的 API
 @app.route('/api/node-groups/<group_id>', methods=['PUT'])
+@login_required
+@admin_required
 def update_node_group(group_id):
     data = request.json
     conn = sqlite3.connect('nas_center.db')
@@ -910,6 +736,8 @@ def update_node_group(group_id):
 
 
 @app.route('/api/node-groups/<group_id>', methods=['DELETE'])
+@login_required
+@admin_required
 def delete_node_group(group_id):
     conn = sqlite3.connect('nas_center.db')
     cursor = conn.cursor()

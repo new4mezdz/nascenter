@@ -791,12 +791,17 @@
     <button @click="window.permissionTab = 'users'"
             :class="window.permissionTab === 'users' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'"
             class="px-4 py-2 font-semibold">
-      用户权限
+      👥 用户权限
     </button>
     <button @click="window.permissionTab = 'groups'"
             :class="window.permissionTab === 'groups' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'"
             class="px-4 py-2 font-semibold">
-      节点分组
+      📁 节点分组
+    </button>
+    <button @click="window.permissionTab = 'nodes'"
+            :class="window.permissionTab === 'nodes' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'"
+            class="px-4 py-2 font-semibold">
+      🖥️ 节点控制
     </button>
   </div>
 
@@ -821,7 +826,13 @@
                     </tr>
                   </thead>
                   <tbody v-if="!window.loading">
-  <tr v-for="user in window.users" :key="user.id" class="border-b hover:bg-gray-50">
+  <tr v-if="!window.users || window.users.length === 0">
+    <td colspan="5" class="p-8 text-center text-gray-500">
+      <div class="text-4xl mb-2">👥</div>
+      <div class="text-sm">暂无用户</div>
+    </td>
+  </tr>
+  <tr v-for="user in window.users || []" :key="user.id" class="border-b hover:bg-gray-50">
 
     <td class="p-3">
       <div class="flex items-center gap-2">
@@ -883,7 +894,6 @@
 </tbody>
                 </table>
               </div>
-              </div>
 
               <!-- 权限类型说明 -->
               <div class="bg-white rounded-lg shadow border p-6 mb-6">
@@ -925,6 +935,7 @@
                   </div>
                 </div>
               </div>
+              </div>
 
               <!-- 节点分组标签页 -->
   <div v-if="window.permissionTab === 'groups'">
@@ -939,7 +950,12 @@
 
       <!-- 分组列表 -->
       <div class="space-y-3">
-        <div v-for="group in window.groups" :key="group.id"
+        <div v-if="window.groups && window.groups.length === 0" class="text-center py-8 text-gray-500">
+          <div class="text-4xl mb-2">📦</div>
+          <div class="text-sm">还没有创建任何分组</div>
+          <div class="text-xs mt-1">点击上方"创建分组"按钮开始</div>
+        </div>
+        <div v-for="group in window.groups || []" :key="group.id"
              class="border rounded-lg p-4 hover:bg-gray-50">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
@@ -977,14 +993,19 @@
       </div>
     </div>
   </div>
-</div>
 
-              <!-- 节点访问控制 -->
+              <!-- 节点访问控制标签页 -->
+  <div v-if="window.permissionTab === 'nodes'">
               <div class="bg-white rounded-lg shadow border p-6">
   <h4 class="font-bold text-lg mb-4">节点访问控制</h4>
   <div class="space-y-3">
 
-    <div v-for="node in window.nodes" :key="node.id"
+    <div v-if="window.nodes && window.nodes.length === 0" class="text-center py-8 text-gray-500">
+      <div class="text-4xl mb-2">🖥️</div>
+      <div class="text-sm">暂无节点</div>
+    </div>
+
+    <div v-for="node in window.nodes || []" :key="node.id"
          class="flex items-center justify-between p-4 border rounded-lg">
       <div class="flex items-center gap-3">
         <div class="text-3xl">🖥️</div>
@@ -1011,6 +1032,8 @@
 
                 </div>
               </div>
+  </div>
+</div>
 
               <!-- 提示信息 -->
               <div class="mt-6 bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded">
@@ -1547,64 +1570,188 @@
 
   </div>
 
-    <!-- 创建/编辑分组对话框 -->
-<div v-if="showGroupDialog"
+   <!-- 节点分组对话框 -->
+   <div v-if="showGroupDialog"
+        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[2000]"
+        @click.self="closeGroupDialog()">
+     <div class="bg-white rounded-lg shadow-xl w-[600px] max-h-[80vh] flex flex-col">
+       <!-- 对话框标题 -->
+       <div class="flex justify-between items-center p-6 border-b">
+         <h3 class="text-xl font-bold">
+           {{ groupDialogMode === 'create' ? '创建节点分组' : '编辑节点分组' }}
+         </h3>
+         <button @click="closeGroupDialog()" class="text-gray-500 hover:text-gray-700 text-2xl">
+           ×
+         </button>
+       </div>
+
+       <!-- 对话框内容 -->
+       <div class="flex-1 overflow-auto p-6">
+         <!-- 分组图标 -->
+         <div class="mb-4">
+           <label class="block text-sm font-semibold mb-2">图标</label>
+           <div class="flex gap-2">
+             <button v-for="icon in ['📁', '📂', '🗂️', '📦', '🏢', '🏠', '🌐', '☁️', '💾', '🖥️']"
+                     :key="icon"
+                     @click="groupForm.icon = icon"
+                     :class="groupForm.icon === icon ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'"
+                     class="w-12 h-12 rounded-lg text-2xl flex items-center justify-center transition">
+               {{ icon }}
+             </button>
+           </div>
+         </div>
+
+         <!-- 分组名称 -->
+         <div class="mb-4">
+           <label class="block text-sm font-semibold mb-2">分组名称 *</label>
+           <input v-model="groupForm.name"
+                  type="text"
+                  placeholder="例如: 生产环境节点"
+                  class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+         </div>
+
+         <!-- 分组描述 -->
+         <div class="mb-4">
+           <label class="block text-sm font-semibold mb-2">描述 (可选)</label>
+           <textarea v-model="groupForm.description"
+                     placeholder="简要描述这个分组的用途..."
+                     rows="3"
+                     class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+         </div>
+
+         <!-- 选择节点 -->
+         <div class="mb-4">
+           <label class="block text-sm font-semibold mb-2">包含的节点</label>
+           <div class="space-y-2 max-h-60 overflow-auto border rounded-lg p-3">
+  <label v-for="node in (availableNodes || []).filter(n => n && n.id)" :key="node.id"
+         class="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
+               <input type="checkbox"
+                      :value="node.id"
+                      v-model="groupForm.nodes"
+                      class="w-4 h-4">
+               <span class="text-2xl">🖥️</span>
+               <div class="flex-1">
+                 <div class="font-semibold text-sm">{{ node.name }}</div>
+                 <div class="text-xs text-gray-600">{{ node.ip }}:{{ node.port }}</div>
+               </div>
+             </label>
+           </div>
+           <div class="text-xs text-gray-600 mt-2">
+             已选择 {{ groupForm.nodes.length }} 个节点
+           </div>
+         </div>
+       </div>
+
+       <!-- 对话框按钮 -->
+       <div class="flex justify-end gap-3 p-6 border-t">
+         <button @click="closeGroupDialog()"
+                 class="px-4 py-2 border rounded-lg hover:bg-gray-100">
+           取消
+         </button>
+         <button @click="saveNodeGroup()"
+                 class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+           {{ groupDialogMode === 'create' ? '创建' : '保存' }}
+         </button>
+       </div>
+     </div>
+   </div>
+
+   <!-- 用户节点访问权限详细编辑对话框 -->
+<div v-if="showUserAccessDialog"
      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[2000]"
-     @click.self="closeGroupDialog()">
-  <div class="bg-white rounded-lg shadow-xl w-[600px] max-h-[80vh] flex flex-col">
+     @click.self="closeUserAccessDialog()">
+  <div class="bg-white rounded-lg shadow-xl w-[700px] max-h-[80vh] flex flex-col">
     <!-- 对话框标题 -->
     <div class="flex justify-between items-center p-6 border-b">
       <h3 class="text-xl font-bold">
-        {{ groupDialogMode === 'create' ? '创建节点分组' : '编辑节点分组' }}
+        编辑节点访问权限 - {{ currentEditUser?.username }}
       </h3>
-      <button @click="closeGroupDialog()" class="text-gray-500 hover:text-gray-700 text-2xl">
+      <button @click="closeUserAccessDialog()" class="text-gray-500 hover:text-gray-700 text-2xl">
         ×
       </button>
     </div>
 
     <!-- 对话框内容 -->
     <div class="flex-1 overflow-auto p-6">
-      <!-- 分组名称 -->
-      <div class="mb-4">
-        <label class="block text-sm font-semibold mb-2">分组名称 *</label>
-        <input v-model="groupForm.name"
-               type="text"
-               placeholder="例如: 开发环境"
-               class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
-      </div>
+      <!-- 访问类型选择 -->
+      <div class="mb-6">
+        <label class="block text-sm font-semibold mb-3">访问类型</label>
+        <div class="space-y-2">
+          <label class="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50"
+                 :class="userAccessForm.type === 'all' ? 'border-blue-500 bg-blue-50' : ''">
+            <input type="radio"
+                   v-model="userAccessForm.type"
+                   value="all"
+                   class="w-4 h-4">
+            <div class="flex-1">
+              <div class="font-semibold">✓ 所有节点</div>
+              <div class="text-xs text-gray-600">用户可以访问所有节点</div>
+            </div>
+          </label>
 
-      <!-- 分组描述 -->
-      <div class="mb-4">
-        <label class="block text-sm font-semibold mb-2">分组描述</label>
-        <textarea v-model="groupForm.description"
-                  placeholder="简要描述这个分组的用途"
-                  class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-                  rows="3"></textarea>
-      </div>
+          <label class="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50"
+                 :class="userAccessForm.type === 'groups' ? 'border-blue-500 bg-blue-50' : ''">
+            <input type="radio"
+                   v-model="userAccessForm.type"
+                   value="groups"
+                   class="w-4 h-4">
+            <div class="flex-1">
+              <div class="font-semibold">📁 按分组访问</div>
+              <div class="text-xs text-gray-600">用户只能访问指定分组中的节点</div>
+            </div>
+          </label>
 
-      <!-- 分组图标 -->
-      <div class="mb-4">
-        <label class="block text-sm font-semibold mb-2">分组图标</label>
-        <div class="flex gap-2">
-          <button v-for="icon in ['📁', '🖥️', '☁️', '🔧', '🏢', '🌐', '💻', '⚙️']"
-                  :key="icon"
-                  @click="groupForm.icon = icon"
-                  :class="groupForm.icon === icon ? 'ring-2 ring-blue-500' : ''"
-                  class="w-12 h-12 text-2xl border rounded-lg hover:bg-gray-100">
-            {{ icon }}
-          </button>
+          <label class="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50"
+                 :class="userAccessForm.type === 'custom' ? 'border-blue-500 bg-blue-50' : ''">
+            <input type="radio"
+                   v-model="userAccessForm.type"
+                   value="custom"
+                   class="w-4 h-4">
+            <div class="flex-1">
+              <div class="font-semibold">🎯 自定义节点</div>
+              <div class="text-xs text-gray-600">手动选择用户可以访问的节点</div>
+            </div>
+          </label>
         </div>
       </div>
 
-      <!-- 选择节点 -->
-      <div class="mb-4">
-        <label class="block text-sm font-semibold mb-2">包含的节点</label>
-        <div class="space-y-2 max-h-60 overflow-auto border rounded-lg p-3">
-          <label v-for="node in availableNodes" :key="node.id"
+      <!-- 按分组访问 - 选择分组 -->
+      <div v-if="userAccessForm.type === 'groups'" class="mb-6">
+        <label class="block text-sm font-semibold mb-3">允许访问的分组</label>
+        <div v-if="(windows.find(w => w.type === 'permissions')?.groups || []).length > 0" class="space-y-2 max-h-60 overflow-auto border rounded-lg p-3">
+          <label v-for="group in windows.find(w => w.type === 'permissions')?.groups || []"
+                 :key="group.id"
                  class="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
             <input type="checkbox"
+                   :value="group.id"
+                   v-model="userAccessForm.allowed_groups"
+                   class="w-4 h-4">
+            <span class="text-2xl">{{ group.icon }}</span>
+            <div class="flex-1">
+              <div class="font-semibold text-sm">{{ group.name }}</div>
+              <div class="text-xs text-gray-600">
+                包含 {{ group.nodes.length }} 个节点
+              </div>
+            </div>
+          </label>
+        </div>
+        <div v-else class="text-sm text-gray-500 text-center py-4 border rounded-lg">
+          还没有创建任何分组,请先在"节点分组"标签页创建分组
+        </div>
+        <div class="text-xs text-gray-600 mt-2">
+         已选择 {{ (userAccessForm.allowed_groups || []).length }} 个分组
+        </div>
+      </div>
+
+      <!-- 自定义节点 - 选择节点 -->
+      <div v-if="userAccessForm.type === 'custom'" class="mb-6">
+        <label class="block text-sm font-semibold mb-3">允许访问的节点</label>
+        <div class="space-y-2 max-h-60 overflow-auto border rounded-lg p-3">
+         <label v-for="node in (availableNodes || []).filter(n => n && n.id)" :key="node.id"
+         class="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
+            <input type="checkbox"
                    :value="node.id"
-                   v-model="groupForm.nodes"
+                   v-model="userAccessForm.allowed_nodes"
                    class="w-4 h-4">
             <span class="text-2xl">🖥️</span>
             <div class="flex-1">
@@ -1614,20 +1761,46 @@
           </label>
         </div>
         <div class="text-xs text-gray-600 mt-2">
-          已选择 {{ groupForm.nodes.length }} 个节点
+         已选择 {{ (userAccessForm.allowed_nodes || []).length }} 个节点
         </div>
+      </div>
+
+      <!-- 拒绝访问的节点(可选) -->
+      <div v-if="userAccessForm.type !== 'custom'" class="mb-6">
+        <label class="block text-sm font-semibold mb-3">
+          明确拒绝访问的节点 (可选)
+        </label>
+        <details class="border rounded-lg">
+          <summary class="px-3 py-2 cursor-pointer hover:bg-gray-50 text-sm font-medium">
+            点击展开黑名单设置
+          </summary>
+          <div class="space-y-2 max-h-60 overflow-auto border rounded-lg p-3">
+  <label v-for="node in (availableNodes || []).filter(n => n && n.id)" :key="node.id"
+         class="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
+              <input type="checkbox"
+                     :value="node.id"
+                     v-model="userAccessForm.denied_nodes"
+                     class="w-4 h-4">
+              <span class="text-2xl">🖥️</span>
+              <div class="flex-1">
+                <div class="font-semibold text-sm">{{ node.name }}</div>
+                <div class="text-xs text-gray-600">{{ node.ip }}:{{ node.port }}</div>
+              </div>
+            </label>
+          </div>
+        </details>
       </div>
     </div>
 
     <!-- 对话框按钮 -->
     <div class="flex justify-end gap-3 p-6 border-t">
-      <button @click="closeGroupDialog()"
+      <button @click="closeUserAccessDialog()"
               class="px-4 py-2 border rounded-lg hover:bg-gray-100">
         取消
       </button>
-      <button @click="saveNodeGroup()"
+      <button @click="saveUserNodeAccess()"
               class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
-        {{ groupDialogMode === 'create' ? '创建' : '保存' }}
+        保存
       </button>
     </div>
   </div>
@@ -1642,4 +1815,3 @@
 </body>
 </html>
 ```
-
