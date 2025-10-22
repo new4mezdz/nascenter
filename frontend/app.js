@@ -247,6 +247,47 @@ createApp({
             return texts[status] || '未知';
         },
 
+        getPermissionByRole(role) {
+            const permissionMap = {
+                'admin': 'fullcontrol', // 管理员 -> 完全控制
+                'user': 'readwrite',    // 普通用户 -> 读写
+                'guest': 'readonly'     // 访客 -> 只读
+            };
+            return permissionMap[role] || 'readonly'; // 默认只读
+        },
+        async updateUserPermissions(user) {
+    // 核心逻辑：根据用户选择的新角色，自动设置文件权限
+    // 这一步会立即更新 user 对象，由于 1.html 中的 select 元素
+    // 都使用了 v-model 绑定，文件权限的下拉框会立即显示新的权限。
+    user.file_permission = this.getPermissionByRole(user.role);
+
+    // 准备发送给后端的数据
+    const userData = {
+        id: user.id,
+        role: user.role,
+        file_permission: user.file_permission,
+        email: user.email,
+        status: user.status
+        // ... 包含所有需要更新的字段
+    };
+
+    try {
+        // 假设这是更新用户权限的 API
+        const res = await axios.put(
+            `${this.apiBaseUrl}/api/users/${user.id}`,
+            userData
+        );
+
+        if (res.data.success) {
+            // console.log(`用户 ${user.username} 权限已更新。`);
+        }
+    } catch (error) {
+        console.error('更新用户权限失败:', error);
+        alert(error.response?.data?.error || '更新用户权限失败');
+        // 可选：如果更新失败，可以考虑回滚 user 对象的数据
+    }
+},
+
         // ============ 空间分配 ============
         openSpaceAllocation() {
             this.createWindow({
@@ -278,42 +319,56 @@ createApp({
 
 
         async loadPermissionData(window) {
-            try {
-                window.loading = true;
+    try {
+        window.loading = true;
 
-                const [usersRes, nodesRes, groupsRes] = await Promise.all([
-                    axios.get(`${this.apiBaseUrl}/api/users`),
-                    axios.get(`${this.apiBaseUrl}/api/nodes`),
-                    axios.get(`${this.apiBaseUrl}/api/node-groups`)
-                ]);
+        const [usersRes, nodesRes, groupsRes] = await Promise.all([
+            axios.get(`${this.apiBaseUrl}/api/users`),
+            axios.get(`${this.apiBaseUrl}/api/nodes`),
+            axios.get(`${this.apiBaseUrl}/api/node-groups`)
+        ]);
 
-                // 用户列表
-                window.users = usersRes.data.map(user => ({
-                    ...user,
-                    node_access: typeof user.node_access === 'string'
-                        ? JSON.parse(user.node_access)
-                        : user.node_access
-                }));
+        // 用户列表
+        window.users = usersRes.data.map(user => {
+            const mappedUser = {
+                ...user,
+                node_access: typeof user.node_access === 'string'
+                    ? JSON.parse(user.node_access)
+                    : user.node_access
+            };
 
-                // 节点列表
-                window.nodes = nodesRes.data;
-
-                // 分组列表
-                window.groups = groupsRes.data;
-
-                // 初始化标签页
-                if (!window.permissionTab) {
-                    window.permissionTab = 'users';
-                }
-
-                window.loading = false;
-            } catch (error) {
-                console.error('加载权限数据失败:', error);
-                window.error = '加载数据失败';
-                window.loading = false;
+            // 【新增的关键逻辑】在数据加载时，如果文件权限为空，则根据角色设置默认权限
+            // 这解决了在用户列表第一次加载时，“文件权限”下拉菜单显示空白的问题。
+            if (!mappedUser.file_permission) {
+                 // 假设 this.getPermissionByRole(role) 方法已存在于 Vue 实例的 methods 中
+                 mappedUser.file_permission = this.getPermissionByRole(mappedUser.role);
             }
 
-    },
+            return mappedUser;
+        });
+
+
+        // 节点列表
+        window.nodes = nodesRes.data;
+        // 同时更新到 availableNodes 供对话框使用
+        this.availableNodes = window.nodes;
+
+        // 分组列表
+        window.groups = groupsRes.data;
+
+        // 初始化标签页
+        if (!window.permissionTab) {
+            window.permissionTab = 'users';
+        }
+
+        window.loading = false;
+    } catch (error) {
+        console.error('加载权限数据失败:', error);
+        window.error = '加载数据失败';
+        window.loading = false;
+    }
+
+},
 
 // 用于保存 "角色" 和 "文件权限"
     async updateUserPermissions(user) {
@@ -586,9 +641,10 @@ createApp({
 
         const email = prompt(`(可选) 请输入 ${username} 的邮箱:`);
 
-        const role = prompt("请输入角色 (admin 或 user):", "user");
-        if (role !== 'admin' && role !== 'user') {
-            alert("角色必须是 'admin' 或 'user'");
+        // 👇 【修改】允许选择 'guest' 角色
+        const role = prompt("请输入角色 (admin, user 或 guest):", "user");
+        if (role !== 'admin' && role !== 'user' && role !== 'guest') {
+            alert("角色必须是 'admin', 'user' 或 'guest'");
             return;
         }
 
@@ -596,7 +652,9 @@ createApp({
             username: username,
             password: password,
             email: email || '',
-            role: role
+            role: role,
+            // 👇 【新增】根据角色自动设置文件权限
+            file_permission: this.getPermissionByRole(role)
         };
 
         try {
@@ -611,11 +669,13 @@ createApp({
 // 👇 [替换] 使用这个新的 updateUser 方法
     async updateUser(window, user) {
         const email = prompt(`请输入 ${user.username} 的新邮箱:`, user.email);
-        const role = prompt(`请输入 ${user.username} 的新角色 (admin 或 user):`, user.role);
+        // 👇 【修改】允许输入 'guest'
+        const role = prompt(`请输入 ${user.username} 的新角色 (admin, user 或 guest):`, user.role);
         const status = prompt(`请输入 ${user.username} 的状态 (active 或 deleted):`, user.status);
 
-        if (!role || (role !== 'admin' && role !== 'user')) {
-            alert("角色必须是 'admin' 或 'user'");
+        // 👇 【修改】校验角色
+        if (!role || (role !== 'admin' && role !== 'user' && role !== 'guest')) {
+            alert("角色必须是 'admin', 'user' 或 'guest'");
             return;
         }
 
@@ -627,7 +687,9 @@ createApp({
         const userData = {
             email: email || '',
             role: role,
-            status: status
+            status: status,
+            // 👇 【新增】根据新角色自动设置文件权限
+            file_permission: this.getPermissionByRole(role)
         };
 
         try {

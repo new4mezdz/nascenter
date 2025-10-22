@@ -810,9 +810,10 @@
               <div class="bg-white rounded-lg shadow border p-6 mb-6">
                 <div class="flex justify-between items-center mb-4">
                   <h4 class="font-bold text-lg">用户访问权限</h4>
-                  <button class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
-                    + 添加用户
-                  </button>
+                  <button @click="createUser(window)"
+        class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+  + 添加用户
+</button>
                 </div>
 
                 <table class="w-full">
@@ -850,6 +851,7 @@
               :class="{ 'cursor-not-allowed bg-gray-100': user.username === 'admin' }">
         <option value="admin">👑 管理员</option>
         <option value="user">👤 普通用户</option>
+        <option value="guest">👁️ 访客</option>
       </select>
     </td>
 
@@ -903,10 +905,10 @@
                     <div class="text-3xl mb-2">👁️</div>
                     <div class="font-semibold mb-1">只读权限</div>
                     <div class="text-xs text-gray-600">
-                      • 查看文件列表<br>
+                     • 查看文件列表<br>
                       • 下载文件<br>
-                      • 查看系统信息<br>
-                      • 不能修改或删除
+                      • 🚫 不能上传/修改/删除文件<br>
+                      • 🚫 不能进行系统配置
                     </div>
                   </div>
 
