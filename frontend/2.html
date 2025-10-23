@@ -1902,7 +1902,10 @@ createApp({
       ]);
 
       window.users = usersRes.data;
-      window.nodeGroups = groupsRes.data;
+      window.groups = groupsRes.data.map(group => ({
+    ...group,
+    nodes: group.node_ids || []  // 把 node_ids 映射为 nodes
+}));
       window.nodes = nodesRes.data;
     },
 

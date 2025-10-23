@@ -772,11 +772,46 @@ def get_node_monitor_stats(node_id):
 
     try:
         base_url = f"http://{node_config['ip']}:{node_config['port']}"
-        response = requests.get(f"{base_url}/api/system", timeout=5)
 
-        # 检查节点是否返回了成功的状态码
-        if response.status_code == 200:
-            return jsonify(response.json())
+        print(f"[DEBUG] 正在请求节点: {base_url}")
+
+        # 获取系统统计信息
+        sys_response = requests.get(f"{base_url}/api/system-stats", timeout=5)
+        print(f"[DEBUG] system-stats 响应码: {sys_response.status_code}")
+
+        # 获取硬件详细信息
+        hw_response = requests.get(f"{base_url}/api/hardware-data", timeout=5)
+        print(f"[DEBUG] hardware-data 响应码: {hw_response.status_code}")
+
+        if sys_response.status_code == 200:
+            sys_data = sys_response.json()
+            hw_data = hw_response.json() if hw_response.status_code == 200 else {}
+
+            print(f"[DEBUG] sys_data keys: {sys_data.keys()}")
+            print(f"[DEBUG] hw_data keys: {hw_data.keys()}")
+
+            # 合并数据
+            # 合并数据 - 优先使用 sys_data 的值,因为客户端已经处理好了
+            result = {
+                'temperatures': hw_data.get('temperatures', []),
+                'fans': hw_data.get('fans', []),
+                'voltages': hw_data.get('voltages', []),
+                'powers': hw_data.get('powers', []),
+                'clocks': hw_data.get('clocks', []),
+                'disks_temp': hw_data.get('disks_temp', []),
+                'memory_percent': sys_data.get('memory_percent', 0),
+                'disk_total_gb': sys_data.get('disk_total_gb', 0),
+                'disk_used_gb': sys_data.get('disk_used_gb', 0),
+                'cpu_temp_celsius': sys_data.get('cpu_temp_celsius', 0),
+                'cpu_freq': sys_data.get('cpu_freq', 0),  # 从 sys_data 获取
+                'cpu_power': sys_data.get('cpu_power', 0),  # 从 sys_data 获取
+                'network_download': sys_data.get('network_download', 0),  # 从 sys_data 获取
+                'network_upload': sys_data.get('network_upload', 0)  # 从 sys_data 获取
+            }
+
+            print(f"[DEBUG] 返回结果: {result}")
+
+            return jsonify(result)
         else:
             # 如果节点返回了错误（比如500），我们解析它的错误信息并返回给前端
             error_details = response.json().get('error', '未知节点错误')

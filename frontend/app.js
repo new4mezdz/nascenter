@@ -45,6 +45,10 @@ createApp({
         setInterval(() => this.updateTime(), 1000);
         this.openNodeManagement();
         this.checkAuth();
+
+          setInterval(() => {
+    this.refreshNodeMonitorStats();
+  }, 5000);
     },
     methods: {
 
@@ -354,7 +358,15 @@ createApp({
         this.availableNodes = window.nodes;
 
         // 分组列表
-        window.groups = groupsRes.data;
+       // 分组列表 - 统一字段名
+window.groups = groupsRes.data.map(group => ({
+    id: group.group_id,           // 统一为 id
+    group_id: group.group_id,     // 保留原字段供删除用
+    name: group.group_name,       // 统一为 name
+    description: group.description,
+    icon: group.icon,
+    nodes: group.node_ids || []   // 统一为 nodes
+}));
 
         // 初始化标签页
         if (!window.permissionTab) {
@@ -425,7 +437,30 @@ createApp({
     },
 
 
-// ... (在 openSystemMonitor 方法之后) ...
+async fetchNodeMonitorStats(nodeId) {
+    try {
+        console.log('=== (自动刷新) 获取节点监控数据 ===', nodeId);
+        const response = await axios.get(`${this.apiBaseUrl}/api/nodes/${nodeId}/monitor-stats`);
+        const data = response.data;
+        console.log('返回数据:', data);
+
+        const monitorWindow = this.windows.find(w => w.type === 'system-monitor' && w.monitorView === 'detail');
+        if (monitorWindow && monitorWindow.selectedNodeId === nodeId) {
+            monitorWindow.selectedNodeStats = { ...data };  // 使用展开运算符
+            monitorWindow.loading = false;
+            console.log('已更新窗口数据:', monitorWindow.selectedNodeStats); // 添加调试日志
+        }
+    } catch (error) {
+        console.error('获取失败:', error);
+    }
+},
+
+refreshNodeMonitorStats() {
+  const monitorWindow = this.windows.find(w => w.type === 'monitor' && w.monitorView === 'detail');
+  if (monitorWindow && monitorWindow.selectedNode) {
+    this.fetchNodeMonitorStats(monitorWindow.selectedNode);
+  }
+},
 
 // [新] 打开文件管理器
     openFileExplorer() {
@@ -554,21 +589,23 @@ createApp({
     },
 
     async selectNodeForMonitor(window, node) {
-        window.loading = true;
-        window.selectedNodeId = node.id;
-        window.title = `系统监控 - ${node.name}`; // 动态改变窗口标题
-        try {
-            const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/monitor-stats`);
-            window.selectedNodeStats = res.data;
-            window.monitorView = 'detail'; // 切换到详情视图
-        } catch (error) {
-            console.error('加载节点详细监控数据失败:', error);
-            alert('加载节点详细监控数据失败');
-            window.selectedNodeId = null;
-        } finally {
-            window.loading = false;
-        }
-    },
+    window.loading = true;
+    window.selectedNodeId = node.id;
+    window.title = `系统监控 - ${node.name}`;
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/monitor-stats`);
+        // 使用 Vue.set 或者直接赋值触发响应式更新
+        window.selectedNodeStats = { ...res.data };  // 使用展开运算符创建新对象
+        window.monitorView = 'detail';
+        console.log('设置监控数据:', window.selectedNodeStats); // 添加调试日志
+    } catch (error) {
+        console.error('加载节点详细监控数据失败:', error);
+        alert('加载节点详细监控数据失败');
+        window.selectedNodeId = null;
+    } finally {
+        window.loading = false;
+    }
+},
 
     returnToMonitorOverview(window) {
         window.monitorView = 'overview';
@@ -791,11 +828,11 @@ openCreateGroupDialog() {
     openEditGroupDialog(window, group) {
         this.groupDialogMode = 'edit';
         this.groupForm = {
-            id: group.id,
+            id: group.group_id || group.id,
             name: group.name,
             description: group.description || '',
             icon: group.icon || '📁',
-            nodes: [...group.nodes]  // 复制数组
+            nodes: Array.isArray(group.nodes) ? [...group.nodes] : (group.nodes ? JSON.parse(group.nodes) : [])
         };
         this.availableNodes = window.nodes || [];
         this.showGroupDialog = true;
@@ -815,7 +852,7 @@ openCreateGroupDialog() {
 
 
     async saveNodeGroup() {
-        if (!this.groupForm.name.trim()) {
+        if (!this.groupForm.name || !this.groupForm.name.trim()) {
             alert('请输入分组名称');
             return;
         }
@@ -823,7 +860,14 @@ openCreateGroupDialog() {
         try {
             if (this.groupDialogMode === 'create') {
                 // 创建分组
-                const res = await axios.post(`${this.apiBaseUrl}/api/node-groups`, this.groupForm);
+                // 创建分组
+// 创建分组
+const res = await axios.post(`${this.apiBaseUrl}/api/node-groups`, {
+    group_name: this.groupForm.name,
+    description: this.groupForm.description,
+    icon: this.groupForm.icon,
+    node_ids: this.groupForm.nodes  // 改成 node_ids
+});
 
                 if (res.data.success) {
                     alert('分组创建成功');
@@ -836,11 +880,16 @@ openCreateGroupDialog() {
                     }
                 }
             } else {
-                // 更新分组
-                const res = await axios.put(
-                    `${this.apiBaseUrl}/api/node-groups/${this.groupForm.id}`,
-                    this.groupForm
-                );
+            // 更新分组
+const res = await axios.put(
+    `${this.apiBaseUrl}/api/node-groups/${this.groupForm.id}`,
+    {
+        group_name: this.groupForm.name,
+        description: this.groupForm.description,
+        icon: this.groupForm.icon,
+        node_ids: this.groupForm.nodes  // 改成 node_ids
+    }
+);
 
                 if (res.data.success) {
                     alert('分组更新成功');
@@ -865,7 +914,7 @@ openCreateGroupDialog() {
         }
 
         try {
-            const res = await axios.delete(`${this.apiBaseUrl}/api/node-groups/${group.id}`);
+            const res = await axios.delete(`${this.apiBaseUrl}/api/node-groups/${group.group_id || group.id}`);
 
             if (res.data.success) {
                 alert('分组删除成功');

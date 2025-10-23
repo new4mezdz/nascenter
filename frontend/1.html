@@ -935,6 +935,20 @@
                       • 用户管理
                     </div>
                   </div>
+                  <!-- 加密功能说明 -->
+<div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200 p-6 mt-4">
+  <div class="flex items-start gap-3">
+    <div class="text-3xl">🔐</div>
+    <div class="flex-1">
+      <div class="font-semibold text-lg mb-2">文件加密</div>
+      <div class="text-sm text-gray-700">
+        • <span class="font-medium">权限要求:</span> 读写权限及以上用户<br>
+        • <span class="font-medium">主要作用:</span> 对敏感文件进行端到端加密存储,确保数据安全<br>
+        • <span class="font-medium">功能:</span> 加密上传、解密下载、密钥管理
+      </div>
+    </div>
+  </div>
+</div>
                 </div>
               </div>
               </div>
@@ -966,7 +980,7 @@
                 <div class="font-semibold">{{ group.name }}</div>
                 <div class="text-xs text-gray-600">{{ group.description }}</div>
                 <div class="text-xs text-gray-500 mt-1">
-                  包含 {{ group.nodes.length }} 个节点
+                  包含 {{ (group.nodes || []).length }} 个节点
                 </div>
               </div>
             </div>
@@ -983,7 +997,7 @@
           </div>
 
           <!-- 节点列表 -->
-          <div v-if="group.nodes.length > 0" class="mt-3 pt-3 border-t">
+          <div v-if="group.nodes && group.nodes.length > 0" class="mt-3 pt-3 border-t">
             <div class="flex flex-wrap gap-2">
               <span v-for="nodeId in group.nodes" :key="nodeId"
                     class="px-2 py-1 bg-gray-100 rounded text-xs">
@@ -1391,34 +1405,86 @@
       <div class="loading"></div> <span class="ml-2 text-gray-600">正在加载详细数据...</span>
   </div>
   <div v-else-if="window.selectedNodeStats" class="flex-1 overflow-auto p-6 bg-gray-50">
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <div class="bg-white rounded-lg shadow border p-4">
-        <h4 class="font-semibold mb-4 text-lg flex items-center gap-2">
-            <span class="text-2xl">🌡️</span> 温度监控
-        </h4>
-        <div class="space-y-3">
-          <div v-for="temp in window.selectedNodeStats.temperatures" class="flex justify-between items-center">
-            <span class="text-gray-700">{{ temp.name }}</span>
-            <span class="font-bold text-xl" :class="temp.value > 80 ? 'text-red-600' : 'text-orange-500'">
-              {{ temp.value?.toFixed(1) || 'N/A' }}°C
-            </span>
-          </div>
-        </div>
+   <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+  <!-- CPU信息 -->
+  <div class="bg-white rounded-lg shadow border p-4">
+    <h4 class="font-semibold mb-4 text-lg flex items-center gap-2">
+      <span class="text-2xl">💻</span> CPU
+    </h4>
+    <div class="space-y-2 text-sm">
+      <div class="flex justify-between">
+        <span class="text-gray-700">温度</span>
+        <span class="font-bold">{{ window.selectedNodeStats.cpu_temp_celsius || '--' }}°C</span>
       </div>
-      <div class="bg-white rounded-lg shadow border p-4">
-        <h4 class="font-semibold mb-4 text-lg flex items-center gap-2">
-            <span class="text-2xl">💨</span> 风扇转速
-        </h4>
-        <div class="space-y-3">
-          <div v-for="fan in window.selectedNodeStats.fans" class="flex justify-between items-center">
-            <span class="text-gray-700">{{ fan.name }}</span>
-            <span class="font-bold text-xl text-blue-600">
-              {{ fan.value?.toFixed(0) || 'N/A' }} RPM
-            </span>
-          </div>
-        </div>
+      <div class="flex justify-between">
+        <span class="text-gray-700">频率</span>
+        <span class="font-bold">{{ window.selectedNodeStats.cpu?.freq || '--' }} GHz</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-gray-700">功耗</span>
+        <span class="font-bold">{{ window.selectedNodeStats.cpu_power || '--' }} W</span>
       </div>
     </div>
+  </div>
+
+  <!-- 风扇转速 -->
+  <div class="bg-white rounded-lg shadow border p-4">
+    <h4 class="font-semibold mb-4 text-lg flex items-center gap-2">
+      <span class="text-2xl">💨</span> 风扇转速
+    </h4>
+    <div class="space-y-2 text-sm">
+  <div class="flex justify-between">
+    <span class="text-gray-700">转速</span>
+    <span class="font-bold text-blue-600">{{ (window.selectedNodeStats.fans && window.selectedNodeStats.fans[0]) ? window.selectedNodeStats.fans[0].value : '--' }} RPM</span>
+  </div>
+</div>
+  </div>
+
+  <!-- 内存使用 -->
+  <div class="bg-white rounded-lg shadow border p-4">
+    <h4 class="font-semibold mb-4 text-lg flex items-center gap-2">
+      <span class="text-2xl">🧠</span> 内存
+    </h4>
+    <div class="space-y-2 text-sm">
+  <div class="space-y-2 text-sm">
+  <div class="flex justify-between">
+    <span class="text-gray-700">使用率</span>
+    <span class="font-bold">{{ window.selectedNodeStats.memory_percent ?? '--' }}%</span>
+  </div>
+</div>
+  </div>
+    </div>
+
+  <!-- 硬盘温度 -->
+  <div class="bg-white rounded-lg shadow border p-4">
+    <h4 class="font-semibold mb-4 text-lg flex items-center gap-2">
+      <span class="text-2xl">💾</span> 硬盘
+    </h4>
+    <div class="space-y-2 text-sm">
+  <div class="flex justify-between">
+    <span class="text-gray-700">温度</span>
+    <span class="font-bold">{{ (window.selectedNodeStats.disks_temp && window.selectedNodeStats.disks_temp[0]) ? window.selectedNodeStats.disks_temp[0].value : '--' }}°C</span>
+  </div>
+</div>
+  </div>
+
+  <!-- 网络带宽 -->
+  <div class="bg-white rounded-lg shadow border p-4 md:col-span-2">
+    <h4 class="font-semibold mb-4 text-lg flex items-center gap-2">
+      <span class="text-2xl">🌐</span> 网络带宽
+    </h4>
+    <div class="grid grid-cols-2 gap-4 text-sm">
+      <div class="flex justify-between">
+        <span class="text-gray-700">下载</span>
+        <span class="font-bold text-green-600">{{ window.selectedNodeStats.network_download !== undefined && window.selectedNodeStats.network_download !== null ? window.selectedNodeStats.network_download : '--' }} MB/s</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-gray-700">上传</span>
+        <span class="font-bold text-blue-600">{{ window.selectedNodeStats.network_upload !== undefined && window.selectedNodeStats.network_upload !== null ? window.selectedNodeStats.network_upload : '--' }} MB/s</span>
+      </div>
+    </div>
+  </div>
+</div>
   </div>
 </div>
 </div>
