@@ -5,8 +5,11 @@ import os
 import requests
 import sqlite3, json, time
 from config import NAS_SHARED_SECRET
-
-
+import subprocess
+from pathlib import Path
+NGROK_PATH = Path(__file__).with_name('ngrok.exe')
+ngrok_url_global = None
+FLASK_PORT = 8080
 # ✅ 获取项目根目录(nascenter 文件夹)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, 'frontend')
@@ -1323,21 +1326,110 @@ def mkdir(node_id):
     except Exception as e:
         return jsonify({"error": f"在节点 {node_config['name']} 上创建文件夹失败", "message": str(e)}), 500
 
+
+def start_ngrok():
+    global ngrok_url_global
+
+    # 1) 可执行文件就位？
+    if not NGROK_PATH.exists():   # ← 现在 OK：NGROK_PATH 是 Path
+        print(f"❌ 未找到 {NGROK_PATH.name}，请把它放在与 app.py 同目录：{NGROK_PATH}")
+        return None, None
+
+    # 2) 清理旧进程（避免多开）
+    _cleanup_old_ngrok()
+
+    # 3) 启动 ngrok
+    print(f"⚙️ 正在启动 ngrok 映射 http://127.0.0.1:{FLASK_PORT} ...")
+    proc = subprocess.Popen(
+        [str(NGROK_PATH), 'http', str(FLASK_PORT)],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding='utf-8', errors='replace'
+    )
+
+    # 4) 轮询 4040 API 取 https 公网地址（最多 ~15s）
+    url = None
+    for i in range(15):
+        time.sleep(1)
+        # 若进程已退出则直接失败
+        if proc.poll() is not None:
+            print("❌ ngrok 进程已退出。")
+            break
+        try:
+            r = requests.get('http://127.0.0.1:4040/api/tunnels', timeout=2)
+            r.raise_for_status()
+            data = r.json()
+            for t in data.get('tunnels', []):
+                if t.get('proto') == 'https' and t.get('public_url'):
+                    url = t['public_url']
+                    break
+            if url:
+                break
+            else:
+                print(f"⏳ ngrok 就绪中...({i+1}/15)")
+        except requests.exceptions.RequestException:
+            print(f"⏳ 等待 ngrok API...({i+1}/15)")
+            continue
+        except Exception as e:
+            print(f"❌ 获取 ngrok 地址出错：{e}")
+            break
+
+    if not url:
+        print("❌ 未能获得 ngrok 公网地址。输出如下：")
+        try:
+            out, _ = proc.communicate(timeout=5)
+            print(out or "(无输出)")
+        except Exception:
+            print("(读取输出失败)")
+        return None, None
+
+    ngrok_url_global = url
+    print(f"✅ ngrok 公网地址：{url}")
+    return url, proc
+
+# === 提供给前端/脚本查询 ngrok 地址（可选） ===
+@app.route('/api/ngrok-url', methods=['GET'])
+def get_ngrok_url():
+    return jsonify({"url": ngrok_url_global})
+
+def _cleanup_old_ngrok():
+    """尽力清理已遗留的 ngrok 进程（可选，不报错）。"""
+    try:
+        if os.name == 'nt':
+            subprocess.run(['taskkill', '/F', '/IM', 'ngrok.exe'],
+                           check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            subprocess.run(['killall', 'ngrok'],
+                           check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
 if __name__ == '__main__':
-    print("=" * 50)
-    print("🚀 NAS Center 启动中...")
-    print("=" * 50)
-    print(f"📁 前端文件夹: {FRONTEND_DIR}")
-    print(f"📄 HTML 文件: {os.path.join(FRONTEND_DIR, '1.html')}")
-    print("=" * 50)
-    print("🌐 前端页面: http://127.0.0.1:8080")
-    print("📡 API 地址: http://127.0.0.1:8080/api")
-    print("=" * 50)
-    print("📋 配置的节点:")
-    for node in NODES_CONFIG:
-        print(f"  - {node['name']}: {node['ip']}:{node['port']} ({node['type']})")
-    print("=" * 50)
-    print("💡 本地节点: http://127.0.0.1:5000")
-    print("=" * 50)
+    # 初始化数据库
     init_db()
-    app.run(host='0.0.0.0', port=8080, debug=True)
+
+    # 仅在实际服务进程里打印横幅（避免重载器打印两次）
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
+        print("=" * 50)
+        print("🚀 NAS Center 启动中...")
+        print("=" * 50)
+        print(f"📁 前端文件夹: {FRONTEND_DIR}")
+        print(f"📄 HTML 文件: {os.path.join(FRONTEND_DIR, '1.html')}")
+        print("=" * 50)
+        print(f"🌐 前端页面: http://127.0.0.1:{FLASK_PORT}")
+        print(f"📡 API 地址: http://127.0.0.1:{FLASK_PORT}/api")
+        print("=" * 50)
+        print("📋 配置的节点:")
+        for node in NODES_CONFIG:
+            print(f"  - {node['name']}: {node['ip']}:{node['port']} ({node['type']})")
+        print("=" * 50)
+        print("💡 本地节点: http://127.0.0.1:5000")
+        print("=" * 50)
+
+    # 开发期（use_reloader=True）：只在子进程里启动 ngrok，避免多开
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        url, _ng = start_ngrok()
+        if url:
+            print(f"🌍 外网地址（ngrok）：{url}")
+
+    app.run(host='0.0.0.0', port=FLASK_PORT, debug=True, use_reloader=True)

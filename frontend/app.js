@@ -10,7 +10,7 @@ createApp({
             currentTime: '',
             dragWindow: null,
             dragOffset: {x: 0, y: 0},
-            apiBaseUrl: 'http://127.0.0.1:8080',
+            apiBaseUrl: '',
             showStartMenu: false,
             showNavbar: false,
             currentNodeName: 'NAS Center 主控',
