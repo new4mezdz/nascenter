@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, send_file, session, redirect
+from flask import Flask, jsonify, request, send_file, session, redirect, Response, stream_with_context
 from flask_cors import CORS
 from datetime import datetime, timedelta
 import os
@@ -61,6 +61,73 @@ def login_required(f):
         return f(*args, **kwargs)
 
     return decorated_function
+
+
+# ========== [新增] 分享代理路由 ==========
+
+@app.route('/share/<node_id>/<local_token>', methods=['GET', 'POST'])
+def proxy_share_request(node_id, local_token):
+    """
+    [新增] 代理公网分享链接到局域网节点
+    捕获 /share/node-5/token_abc123 这样的请求
+    """
+    # 1. 查找节点配置
+    node_config = get_node_config_by_id(node_id)
+    if not node_config:
+        return jsonify({"error": "分享节点不存在"}), 404
+
+    # 2. 构建内部节点 URL
+    target_url = f"http://{node_config['ip']}:{node_config['port']}/share/{local_token}"
+
+    print(f"[SHARE PROXY] 代理分享请求: {node_id} -> {target_url}")
+
+    try:
+        # 3. 转发请求 (GET用于查看页面/下载, POST用于提交密码)
+
+        # 复制原始请求头 (排除 'Host')
+        req_headers = {key: value for (key, value) in request.headers if key.lower() != 'host'}
+        req_headers['X-Forwarded-For'] = request.remote_addr  # 告知客户端真实IP
+
+        if request.method == 'GET':
+            resp = requests.get(
+                target_url,
+                params=request.args,  # 传递URL查询参数
+                headers=req_headers,
+                stream=True,  # 关键：开启流式传输
+                timeout=30
+            )
+        elif request.method == 'POST':
+            resp = requests.post(
+                target_url,
+                params=request.args,
+                data=request.get_data(),  # 传递POST数据 (如密码)
+                headers=req_headers,
+                stream=True,
+                timeout=30
+            )
+
+        # 4. 流式返回响应 (将节点的响应流式传回给公网用户)
+
+        # 复制节点的响应头 (如 Content-Type, Content-Disposition)
+        excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
+        headers = [
+            (name, value) for (name, value) in resp.raw.headers.items()
+            if name.lower() not in excluded_headers
+        ]
+
+        # 使用 stream_with_context 将 requests 的响应内容直接传输给 Flask 的响应
+        return Response(stream_with_context(resp.iter_content(chunk_size=8192)),
+                        resp.status_code,
+                        headers)
+
+    except requests.exceptions.Timeout:
+        return jsonify({"error": f"节点 {node_config['name']} 响应超时"}), 504
+    except requests.exceptions.ConnectionError:
+        print(f"[ERROR] 无法连接到节点 {node_config['name']} (URL: {target_url})")
+        return jsonify({"error": f"无法连接到节点 {node_config['name']}"}), 503
+    except Exception as e:
+        print(f"[ERROR] 代理分享请求失败: {e}")
+        return jsonify({"error": f"请求节点失败: {str(e)}"}), 500
 @app.route('/api/generate-node-access-token', methods=['POST'])
 @login_required
 def generate_node_access_token():
@@ -385,7 +452,22 @@ def login():
         session['username'] = user['username']
         session['role'] = user['role']
         # ✅ 正确
-        session['file_permission'] = user['file_permission'] if user['file_permission'] else 'readonly'
+        if user['role'] == 'admin':
+            # 1. 管理员, 始终授予 'fullcontrol'
+            session['file_permission'] = 'fullcontrol'
+
+        elif user['file_permission']:
+            # 2. 非管理员, 且数据库中已有权限, 则使用数据库中的权限
+            session['file_permission'] = user['file_permission']
+
+        else:
+            # 3. 非管理员, 且数据库中无权限, 则根据角色设置默认权限
+            if user['role'] == 'user':
+                # 3a. 'user' 角色默认 'readwrite' (您的新要求)
+                session['file_permission'] = 'readwrite'
+            else:
+                # 3b. 其他角色 (如 'guest' 等) 默认 'readonly'
+                session['file_permission'] = 'readonly'
 
         # 更新最后登录时间
         conn = sqlite3.connect('nas_center.db')
