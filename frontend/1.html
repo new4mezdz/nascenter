@@ -1070,271 +1070,117 @@
           </div>
 
           <!-- 加密管理窗口 -->
-          <div v-if="window.type === 'encryption'" class="h-full flex flex-col">
+        <!-- 🔐 加密管理窗口 -->
+<div v-if="window.type === 'encryption'" class="h-full flex flex-col">
 
-            <div class="px-6 py-4 border-b bg-gradient-to-r from-indigo-50 to-purple-50">
-              <h3 class="text-xl font-bold flex items-center gap-2">
-                <span class="text-3xl">🔐</span>
-                加密管理中心
-              </h3>
-              <p class="text-sm text-gray-600 mt-1">管理磁盘加密和文件加密</p>
-            </div>
+  <!-- 顶部标题 -->
+  <div class="px-6 py-4 border-b bg-gradient-to-r from-indigo-50 to-purple-50 flex justify-between items-center">
+    <div>
+      <h3 class="text-xl font-bold flex items-center gap-2">
+        <span class="text-3xl">🔐</span>
+        加密管理中心
+      </h3>
+      <p class="text-sm text-gray-600 mt-1">管理节点加密与磁盘加密状态</p>
+    </div>
+    <div v-if="window.encryptionView === 'detail'">
+      <button @click="returnToEncryptionOverview(window)"
+              class="px-4 py-2 bg-white border rounded-lg hover:bg-gray-50 transition">
+        ← 返回节点列表
+      </button>
+    </div>
+  </div>
 
-            <!-- 标签页 -->
-            <div class="flex border-b bg-gray-50">
-              <button @click="window.encryptionTab = 'disk'"
-                      :class="window.encryptionTab === 'disk' ? 'bg-white border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'"
-                      class="px-6 py-3 font-semibold transition">
-                💾 磁盘加密
+  <!-- 加密页面内容 -->
+  <div v-if="window.encryptionView === 'overview'" class="flex-1 p-6 bg-gray-50 overflow-auto">
+    <div v-if="window.loading" class="text-center text-gray-500 py-8">加载节点中...</div>
+    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div v-for="node in window.nodes" :key="node.id"
+           @click="openEncryptionDetail(window, node)"
+           class="bg-white rounded-lg shadow border p-6 hover:shadow-lg hover:border-blue-500 cursor-pointer transition">
+        <div class="flex justify-between items-center mb-2">
+          <h4 class="font-bold text-lg text-gray-800">{{ node.name }}</h4>
+          <span class="text-2xl">🖥️</span>
+        </div>
+        <p class="text-xs text-gray-500 mb-3">{{ node.ip }}:{{ node.port }}</p>
+        <div class="text-sm text-gray-700">
+          <span class="text-green-600">在线</span> | 模拟加密状态:
+          <span class="font-semibold">未加密</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 第二级磁盘加密页 -->
+<div v-else-if="window.encryptionView === 'detail'" class="flex flex-1 overflow-hidden">
+  <div class="flex-1 bg-gray-50 p-6 overflow-y-auto">
+    <h4 class="text-lg font-semibold text-gray-700 mb-4">
+      {{ window.selectedNodeName }} 的磁盘加密管理
+    </h4>
+
+    <div v-if="window.loading" class="text-center py-8 text-gray-500">加载磁盘中...</div>
+
+    <div v-else>
+      <table class="w-full text-sm border border-gray-200 bg-white rounded-lg overflow-hidden">
+        <thead class="bg-gray-100 text-gray-700">
+          <tr>
+            <th class="border px-2 py-2 text-left">挂载点</th>
+            <th class="border px-2 py-2 text-left">容量(GB)</th>
+            <th class="border px-2 py-2 text-left">状态</th>
+            <th class="border px-2 py-2 text-center">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="disk in window.encryptionDisks" :key="disk.mount" class="hover:bg-gray-50">
+            <td class="border px-2 py-2 font-mono">{{ disk.mount }}</td>
+            <td class="border px-2 py-2">{{ disk.capacity_gb }}</td>
+            <td class="border px-2 py-2">
+              <span v-if="disk.is_encrypted && disk.is_locked" class="text-yellow-600 font-semibold">🔒 已锁定</span>
+              <span v-else-if="disk.is_encrypted && !disk.is_locked" class="text-green-600 font-semibold">✅ 已加密</span>
+              <span v-else class="text-gray-500">未加密</span>
+            </td>
+            <td class="border px-2 py-2 text-center">
+              <!-- 未加密：启用加密 -->
+              <button v-if="!disk.is_encrypted"
+                      @click="encryptDisk(window, window.selectedNodeId, disk.mount)"
+                      class="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600">
+                🔐 启用加密
               </button>
-              <button @click="window.encryptionTab = 'file'"
-                      :class="window.encryptionTab === 'file' ? 'bg-white border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'"
-                      class="px-6 py-3 font-semibold transition">
-                📄 文件加密
+
+              <!-- 已加密 + 已锁定：解锁 -->
+              <button v-else-if="disk.is_locked"
+                      @click="unlockDisk(window, window.selectedNodeId, disk.mount)"
+                      class="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600">
+                🔓 解锁
               </button>
-            </div>
 
-            <div class="flex-1 overflow-auto p-6 bg-gray-50">
-              <!-- 磁盘加密标签页 -->
-              <div v-if="window.encryptionTab === 'disk'" class="space-y-4">
-                <div class="bg-purple-50 border-l-4 border-purple-500 p-4 rounded">
-                  <div class="flex items-start gap-3">
-                    <span class="text-2xl">💡</span>
-                    <div>
-                      <h4 class="font-semibold text-purple-900 mb-1">全盘加密说明</h4>
-                      <p class="text-sm text-purple-800">
-                        为物理硬盘设置密码,保护数据安全。加密后的硬盘在解锁前无法访问。
-                        服务器重启后所有硬盘将自动锁定,需要输入密码才能访问。
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- 磁盘加密状态列表 -->
-                <div class="bg-white rounded-lg shadow border">
-                  <div class="p-4 border-b font-semibold text-gray-700">磁盘加密状态</div>
-                  <div class="space-y-3 p-4">
-                    <!-- 示例磁盘1 - 已加密已解锁 -->
-                    <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
-                      <div class="flex items-center gap-4">
-                        <span class="text-4xl">🔓</span>
-                        <div>
-                          <div class="font-bold font-mono text-lg">D:\</div>
-                          <div class="flex items-center gap-2 mt-1">
-                            <span class="text-xs font-semibold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                              ✓ 已解锁
-                            </span>
-                            <span class="text-xs text-gray-500">容量: 2 TB</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div class="flex gap-2">
-                        <button class="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600">
-                          🔒 锁定
-                        </button>
-                        <button class="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600">
-                          🔑 改密码
-                        </button>
-                        <button class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600">
-                          🗑️ 移除加密
-                        </button>
-                      </div>
-                    </div>
-
-                    <!-- 示例磁盘2 - 已加密已锁定 -->
-                    <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
-                      <div class="flex items-center gap-4">
-                        <span class="text-4xl">🔒</span>
-                        <div>
-                          <div class="font-bold font-mono text-lg">E:\</div>
-                          <div class="flex items-center gap-2 mt-1">
-                            <span class="text-xs font-semibold bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
-                              🔐 已锁定
-                            </span>
-                            <span class="text-xs text-gray-500">容量: 1 TB</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div class="flex gap-2">
-                        <button class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
-                          🔓 解锁
-                        </button>
-                        <button class="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600">
-                          🔑 改密码
-                        </button>
-                      </div>
-                    </div>
-
-                    <!-- 示例磁盘3 - 未加密 -->
-                    <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
-                      <div class="flex items-center gap-4">
-                        <span class="text-4xl">💾</span>
-                        <div>
-                          <div class="font-bold font-mono text-lg">F:\</div>
-                          <div class="flex items-center gap-2 mt-1">
-                            <span class="text-xs text-gray-500">未加密</span>
-                            <span class="text-xs text-gray-500">容量: 500 GB</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div class="flex gap-2">
-                        <button class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600">
-                          🔐 启用加密
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- 加密统计 -->
-                <div class="grid grid-cols-3 gap-4">
-                  <div class="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-4 rounded-lg shadow">
-                    <div class="text-sm opacity-90 mb-1">总磁盘数</div>
-                    <div class="text-3xl font-bold">3</div>
-                  </div>
-                  <div class="bg-gradient-to-br from-green-500 to-green-600 text-white p-4 rounded-lg shadow">
-                    <div class="text-sm opacity-90 mb-1">已加密</div>
-                    <div class="text-3xl font-bold">2</div>
-                  </div>
-                  <div class="bg-gradient-to-br from-yellow-500 to-yellow-600 text-white p-4 rounded-lg shadow">
-                    <div class="text-sm opacity-90 mb-1">已解锁</div>
-                    <div class="text-3xl font-bold">1</div>
-                  </div>
-                </div>
+              <!-- 已加密 + 已解锁：显示3个操作 -->
+              <div v-else class="flex justify-center gap-2">
+                <button @click="lockDisk(window, window.selectedNodeId, disk.mount)"
+                        class="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600">
+                  🔒 锁定
+                </button>
+                <button @click="decryptDisk(window, window.selectedNodeId, disk.mount)"
+                        class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600">
+                  🧹 永久解密
+                </button>
+                <button @click="changePassword(window, window.selectedNodeId, disk.mount)"
+                        class="px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600">
+                  🔑 改密码
+                </button>
               </div>
+            </td>
+          </tr>
+          <tr v-if="!window.encryptionDisks.length">
+            <td colspan="4" class="text-center text-gray-500 py-4">暂无磁盘数据</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
 
-              <!-- 文件加密标签页 -->
-              <div v-if="window.encryptionTab === 'file'" class="space-y-4">
-                <div class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
-                  <div class="flex items-start gap-3">
-                    <span class="text-2xl">💡</span>
-                    <div>
-                      <h4 class="font-semibold text-blue-900 mb-1">独立文件加密</h4>
-                      <p class="text-sm text-blue-800">
-                        为单个文件或文件夹设置独立密码。加密后文件名会添加 .encrypted 后缀。
-                        每个文件可以使用不同的密码,互不干扰。
-                      </p>
-                    </div>
-                  </div>
-                </div>
+</div>
 
-                <!-- 加密新文件 -->
-                <div class="bg-white rounded-lg shadow border p-6">
-                  <h4 class="font-bold text-lg mb-4">加密文件/文件夹</h4>
-
-                  <div class="space-y-4">
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">选择要加密的内容</label>
-                      <div class="flex gap-2">
-                        <input type="text"
-                               placeholder="请输入文件路径或点击浏览选择"
-                               class="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                        <button class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
-                          📁 浏览
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">设置加密密码</label>
-                      <input type="password"
-                             placeholder="输入加密密码"
-                             class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                    </div>
-
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">确认密码</label>
-                      <input type="password"
-                             placeholder="再次输入密码"
-                             class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                    </div>
-
-                    <button class="w-full bg-blue-500 text-white py-3 rounded-lg font-semibold hover:bg-blue-600">
-                      🔐 开始加密
-                    </button>
-                  </div>
-                </div>
-
-                <!-- 解密文件 -->
-                <div class="bg-white rounded-lg shadow border p-6">
-                  <h4 class="font-bold text-lg mb-4">解密文件/文件夹</h4>
-
-                  <div class="space-y-4">
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">选择加密的文件</label>
-                      <div class="flex gap-2">
-                        <input type="text"
-                               placeholder="请选择 .encrypted 文件"
-                               class="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 outline-none">
-                        <button class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
-                          📁 浏览
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-2">输入解密密码</label>
-                      <input type="password"
-                             placeholder="输入原密码"
-                             class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 outline-none">
-                    </div>
-
-                    <button class="w-full bg-green-500 text-white py-3 rounded-lg font-semibold hover:bg-green-600">
-                      🔓 开始解密
-                    </button>
-                  </div>
-                </div>
-
-                <!-- 加密文件列表示例 -->
-                <div class="bg-white rounded-lg shadow border p-6">
-                  <h4 class="font-bold text-lg mb-4">最近加密的文件</h4>
-                  <div class="space-y-2">
-                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div class="flex items-center gap-3">
-                        <span class="text-2xl">🔒</span>
-                        <div>
-                          <div class="font-semibold">财务报表.xlsx.encrypted</div>
-                          <div class="text-xs text-gray-500">加密时间: 2025-10-17 14:30</div>
-                        </div>
-                      </div>
-                      <button class="px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600">
-                        解密
-                      </button>
-                    </div>
-
-                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div class="flex items-center gap-3">
-                        <span class="text-2xl">🔒</span>
-                        <div>
-                          <div class="font-semibold">机密文件.pdf.encrypted</div>
-                          <div class="text-xs text-gray-500">加密时间: 2025-10-16 09:15</div>
-                        </div>
-                      </div>
-                      <button class="px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600">
-                        解密
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- 安全提示 -->
-                <div class="bg-red-50 border-l-4 border-red-500 p-4 rounded">
-                  <div class="flex items-start gap-3">
-                    <span class="text-2xl">⚠️</span>
-                    <div class="text-sm text-red-800">
-                      <p class="font-semibold mb-1">重要安全提示:</p>
-                      <ul class="list-disc list-inside space-y-1">
-                        <li>请务必记住加密密码,忘记密码将永久无法恢复文件</li>
-                        <li>建议使用强密码(至少8位,包含字母数字符号)</li>
-                        <li>不要在不安全的环境下输入密码</li>
-                        <li>定期备份重要的加密文件</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
 
           <!-- 系统监控窗口 -->
 <div v-if="window.type === 'system-monitor'" class="h-full flex flex-col">

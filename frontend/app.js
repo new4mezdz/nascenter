@@ -400,16 +400,40 @@ window.groups = groupsRes.data.map(group => ({
 
 
     // ============ 加密管理 ============
-    openEncryptionManager() {
-        this.createWindow({
-            type: 'encryption',
-            title: '加密管理',
-            icon: '🔐',
-            width: 1000,
-            height: 700,
-            encryptionTab: 'disk'  // 默认显示磁盘加密标签页
-        });
-    },
+   openEncryptionManager() {
+  const win = this.createWindow({
+    type: 'encryption',
+    title: '加密管理',
+    icon: '🔐',
+    width: 1100,
+    height: 700,
+    encryptionView: 'overview',  // 新增: 当前视图层级
+    nodes: [],
+    selectedNodeId: null,
+    selectedNodeName: null,
+    encryptionDisks: [],
+    loading: false,
+  });
+
+  this.loadEncryptionNodes(win); // 加载节点
+},
+
+// 点击节点，进入磁盘加密页
+async openEncryptionDetail(window, node) {
+  window.encryptionView = 'detail';
+  window.selectedNodeId = node.id;
+  window.selectedNodeName = node.name;
+  await this.loadEncryptionDisks(window);
+},
+
+// 返回节点列表
+returnToEncryptionOverview(window) {
+  window.encryptionView = 'overview';
+  window.selectedNodeId = null;
+  window.encryptionDisks = [];
+},
+
+
 
     // ============ 纠删码配置 ============
     openECConfig() {
@@ -787,9 +811,134 @@ refreshNodeMonitorStats() {
         }
     },
 
-    // app.js 中的 methods 部分
 
-// ... 其他 methods ...
+
+// ============ 加密管理逻辑 ============
+// 加载节点列表
+async loadEncryptionNodes(window) {
+  try {
+    const res = await axios.get(`${this.apiBaseUrl}/api/nodes`);
+    window.nodes = res.data;
+    if (window.nodes.length > 0) {
+      window.selectedNodeId = window.nodes[0].id;
+      await this.loadEncryptionDisks(window);
+    }
+  } catch (err) {
+    alert('加载节点列表失败');
+  }
+},
+
+// 根据节点加载磁盘
+async loadEncryptionDisks(window) {
+  if (!window.selectedNodeId) return;
+  window.loading = true;
+  try {
+    const res = await axios.get(`${this.apiBaseUrl}/api/encryption/disks`, {
+      params: { node_id: window.selectedNodeId }
+    });
+    window.encryptionDisks = res.data.disks;
+  } catch (err) {
+    console.error('加载磁盘加密状态失败:', err);
+    alert('加载磁盘加密状态失败');
+  } finally {
+    window.loading = false;
+  }
+},
+
+
+
+// 执行磁盘加密
+async encryptDisk(window, nodeId, mount) {
+  const password = prompt(`请输入为磁盘 ${mount} 设置的密码：`);
+  if (!password) return;
+  try {
+    const res = await axios.post(`${this.apiBaseUrl}/api/encryption/disk/encrypt`, {
+      node_id: nodeId,
+      mount,
+      password
+    });
+    if (res.data.success) {
+      alert('磁盘加密已启用');
+      await this.loadEncryptionDisks(window);
+    }
+  } catch (err) {
+    alert('加密失败: ' + (err.response?.data?.error || err.message));
+  }
+},
+
+// 解锁磁盘
+async unlockDisk(window, nodeId, mount) {
+  const password = prompt(`请输入磁盘 ${mount} 的解锁密码：`);
+  if (!password) return;
+  try {
+    const res = await axios.post(`${this.apiBaseUrl}/api/encryption/disk/unlock`, {
+      node_id: nodeId,
+      mount,
+      password
+    });
+    if (res.data.success) {
+      alert('磁盘已解锁');
+      await this.loadEncryptionDisks(window);
+    }
+  } catch (err) {
+    alert('解锁失败: ' + (err.response?.data?.error || err.message));
+  }
+},
+
+async lockDisk(window, nodeId, mount) {
+  try {
+    const res = await axios.post(`${this.apiBaseUrl}/api/encryption/disk/lock`, {
+      node_id: nodeId,
+      mount: mount
+    });
+    if (res.data.success) {
+      alert('磁盘已锁定');
+      await this.loadEncryptionDisks(window);
+    } else {
+      alert(res.data.error || '锁定失败');
+    }
+  } catch (error) {
+    alert('请求失败');
+  }
+},
+
+async decryptDisk(window, nodeId, mount) {
+  if (!confirm("⚠️ 确认要永久解密此磁盘吗？解密后数据将不再受加密保护！")) return;
+  try {
+    const res = await axios.post(`${this.apiBaseUrl}/api/encryption/disk/decrypt`, {
+      node_id: nodeId,
+      mount: mount
+    });
+    if (res.data.success) {
+      alert('磁盘已永久解密');
+      await this.loadEncryptionDisks(window);
+    } else {
+      alert(res.data.error || '解密失败');
+    }
+  } catch (error) {
+    alert('请求失败');
+  }
+},
+
+async changePassword(window, nodeId, mount) {
+  const newPassword = prompt("请输入新密码：");
+  if (!newPassword) return;
+  try {
+    const res = await axios.post(`${this.apiBaseUrl}/api/encryption/disk/change-password`, {
+      node_id: nodeId,
+      mount: mount,
+      new_password: newPassword
+    });
+    if (res.data.success) {
+      alert('密码已修改');
+    } else {
+      alert(res.data.error || '修改失败');
+    }
+  } catch (error) {
+    alert('请求失败');
+  }
+},
+
 
 openCreateGroupDialog() {
     // 1. 重置 groupForm 为初始创建状态

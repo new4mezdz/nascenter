@@ -157,20 +157,7 @@ def generate_node_access_token():
     })
 # 节点配置列表
 NODES_CONFIG = [
-    {
-        "id": "node-1",
-        "name": "NAS-主节点",
-        "ip": "192.168.1.100",
-        "port": 8000,
-        "type": "remote"
-    },
-    {
-        "id": "node-2",
-        "name": "NAS-备份节点",
-        "ip": "192.168.1.101",
-        "port": 8000,
-        "type": "remote"
-    },
+
     {
         "id": "node-5",
         "name": "我的本地节点",
@@ -257,7 +244,7 @@ def init_db():
     conn = sqlite3.connect('nas_center.db')
     cursor = conn.cursor()
 
-    # 👇 新增：创建用户表
+    # 👇 用户表
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -273,7 +260,7 @@ def init_db():
         )
     ''')
 
-    # 👇 新增：创建节点分组表
+    # 👇 节点分组表
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS node_groups (
             group_id TEXT PRIMARY KEY,
@@ -286,6 +273,7 @@ def init_db():
         )
     ''')
 
+    # 👇 节点策略表
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS node_policies (
             node_id TEXT PRIMARY KEY,
@@ -293,48 +281,95 @@ def init_db():
         )
     ''')
 
+    # 👇 节点访问请求表
     cursor.execute('''
-           CREATE TABLE IF NOT EXISTS access_requests (
-               request_id TEXT PRIMARY KEY,
-               user_id INTEGER NOT NULL,
-               username TEXT NOT NULL,
-               node_id TEXT NOT NULL,
-               node_name TEXT NOT NULL,
-               permission TEXT NOT NULL,
-               status TEXT DEFAULT 'pending',
-               created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-               approved_at TIMESTAMP,
-               rejected_at TIMESTAMP,
-               reject_reason TEXT,
-               FOREIGN KEY (user_id) REFERENCES users(id)
-           )
-       ''')
+        CREATE TABLE IF NOT EXISTS access_requests (
+            request_id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            node_name TEXT NOT NULL,
+            permission TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            approved_at TIMESTAMP,
+            rejected_at TIMESTAMP,
+            reject_reason TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    ''')
 
-    # 👇 新增：插入默认管理员
+    # 👇 新增：磁盘表（用于加密管理）
     cursor.execute('''
-            INSERT OR IGNORE INTO users (username, password_hash, role, email)
-            VALUES ('admin', '123', 'admin', 'admin@nas.local')
-        ''')
+        CREATE TABLE IF NOT EXISTS disks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            node_id INTEGER,
+            mount TEXT,
+            status TEXT,
+            capacity_gb REAL,
+            is_encrypted INTEGER DEFAULT 0,
+            is_locked INTEGER DEFAULT 0
+        )
+    ''')
 
-    # 👇 新增：插入默认分组
+    # 👇 默认管理员
+    cursor.execute('''
+        INSERT OR IGNORE INTO users (username, password_hash, role, email)
+        VALUES ('admin', '123', 'admin', 'admin@nas.local')
+    ''')
+
+    # 👇 默认分组
     groups_data = [
         ('group_core', '核心服务器组', '生产环境', '["node-1","node-2"]', '#ef4444', '🔥'),
-        # ⬇️ 修正后，删掉多余的 '["node-5"]' ⬇️
         ('group_local', '本地节点组', '测试开发', '["node-5"]', '#8b5cf6', '🏠')
     ]
 
-    for group_data in groups_data:
+    for g in groups_data:
         cursor.execute('''
-               INSERT OR IGNORE INTO node_groups 
-               (group_id, group_name, description, node_ids, color, icon)
-               VALUES (?, ?, ?, ?, ?, ?)
-           ''', group_data)
+            INSERT OR IGNORE INTO node_groups
+            (group_id, group_name, description, node_ids, color, icon)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', g)
 
     conn.commit()
     conn.close()
 
 
 
+
+import requests
+
+@app.route('/api/nodes/initialize', methods=['POST'])
+def initialize_node():
+    """
+    主控端通知节点身份：
+    body = {"node_id": "node-5"}
+    """
+    data = request.json
+    node_id = data.get('node_id')
+    if not node_id:
+        return jsonify({"success": False, "error": "缺少node_id"}), 400
+
+    # 在 NODES_CONFIG 中查找节点
+    node = next((n for n in NODES_CONFIG if n["id"] == node_id), None)
+    if not node:
+        return jsonify({"success": False, "error": "节点不存在"}), 404
+
+    # 向节点发送初始化请求
+    node_url = f"http://{node['ip']}:{node['port']}/api/initialize"
+    payload = {
+        "node_id": node["id"],
+        "master_ip": request.host.split(':')[0],
+        "master_port": 8080
+    }
+
+    try:
+        res = requests.post(node_url, json=payload, timeout=5)
+        print(f"[主控] 已发送初始化给 {node['id']} → {res.status_code}")
+        return jsonify({"success": True})
+    except Exception as e:
+        print(f"[主控] 初始化节点失败: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route('/api/users/<int:user_id>/accessible-nodes', methods=['GET'])
@@ -676,13 +711,21 @@ def update_user(user_id):
     cursor = conn.cursor()
 
     cursor.execute('''
-        UPDATE users SET role = ?, email = ?, status = ?
+        UPDATE users 
+        SET role = ?, email = ?, status = ?, file_permission = ?
         WHERE id = ?
-    ''', (data['role'], data.get('email', ''), data.get('status', 'active'), user_id))
-    data.get('file_permission', 'readonly'),
+    ''', (
+        data['role'],
+        data.get('email', ''),
+        data.get('status', 'active'),
+        data.get('file_permission', 'readonly'),
+        user_id
+    ))
+
     conn.commit()
     conn.close()
     return jsonify({"success": True})
+
 
 
 @app.route('/api/users/<int:user_id>', methods=['DELETE'])
@@ -1012,8 +1055,379 @@ def create_access_request():
             "message": f"自动批准失败: {str(e)}"
         }), 500
 
+# ========== 加密管理接口 ==========
+@app.route('/api/encryption/disks', methods=['GET'])
+@login_required
+def list_encrypted_disks():
+    """
+    返回所有节点磁盘的加密状态信息
+    可选参数:
+      ?node_id=node-5   → 只返回该节点的磁盘
+    返回格式:
+    {
+        "success": true,
+        "disks": [
+            {
+                "node_id": "node-5",
+                "mount": "D:\\",
+                "status": "online",
+                "capacity_gb": 512,
+                "is_encrypted": true,
+                "is_locked": false
+            },
+            ...
+        ]
+    }
+    """
+    try:
+        conn = sqlite3.connect('nas_center.db')
+        cursor = conn.cursor()
 
-# nascenter/backend/app.py (管理端)
+        # 获取查询参数
+        node_id = request.args.get('node_id')
+
+        # 构造 SQL
+        if node_id:
+            cursor.execute('''
+                SELECT node_id, mount, status, capacity_gb, is_encrypted, is_locked
+                FROM disks
+                WHERE node_id = ?
+            ''', (node_id,))
+        else:
+            cursor.execute('''
+                SELECT node_id, mount, status, capacity_gb, is_encrypted, is_locked
+                FROM disks
+            ''')
+
+        # 读取结果
+        rows = cursor.fetchall()
+        conn.close()
+
+        # 格式化输出
+        disks = []
+        for row in rows:
+            disks.append({
+                "node_id": row[0],
+                "mount": row[1],
+                "status": row[2],
+                "capacity_gb": row[3],
+                "is_encrypted": bool(row[4]),
+                "is_locked": bool(row[5])
+            })
+
+        return jsonify({"success": True, "disks": disks})
+
+    except Exception as e:
+        print(f"[管理端] 获取磁盘列表失败: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/nodes/update-disks', methods=['POST'])
+def update_node_disks():
+    """节点上报磁盘信息接口"""
+    data = request.json
+    node_id = data.get('node_id')
+    disks = data.get('disks', [])
+
+    if not node_id or not disks:
+        return jsonify({"success": False, "error": "缺少参数"}), 400
+
+    conn = sqlite3.connect('nas_center.db')
+    cursor = conn.cursor()
+
+    # 删除旧记录
+    cursor.execute('DELETE FROM disks WHERE node_id = ?', (node_id,))
+
+    # 插入新数据
+    for d in disks:
+        cursor.execute('''
+            INSERT INTO disks (node_id, mount, status, capacity_gb, is_encrypted, is_locked)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            node_id,
+            d.get('mount'),
+            d.get('status', 'online'),
+            d.get('capacity_gb', 0),
+            d.get('is_encrypted', 0),
+            d.get('is_locked', 0)
+        ))
+
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "count": len(disks)})
+# ===============================================================
+# 🔒 锁定磁盘
+# ===============================================================
+@app.route('/api/encryption/disk/lock', methods=['POST'])
+@login_required
+@admin_required
+def lock_disk():
+    data = request.get_json()
+    node_id = data.get('node_id')
+    mount = data.get('mount')
+
+    if not (node_id and mount):
+        return jsonify({"success": False, "error": "参数不完整"}), 400
+
+    node = next((n for n in NODES_CONFIG if n["id"] == node_id), None)
+    if not node:
+        return jsonify({"success": False, "error": "节点不存在"}), 404
+
+    node_url = f"http://{node['ip']}:{node['port']}/api/internal/encryption/lock-disk"
+    headers = {"X-NAS-Secret": NAS_SHARED_SECRET}
+
+    print(f"[管理端] 请求节点 {node_id} 锁定磁盘 {mount}")
+
+    try:
+        res = requests.post(node_url, json={"drive": mount}, headers=headers, timeout=10)
+        if res.status_code == 200 and res.json().get("success"):
+            conn = sqlite3.connect('nas_center.db')
+            cursor = conn.cursor()
+            cursor.execute("UPDATE disks SET is_locked=1 WHERE node_id=? AND mount=?", (node_id, mount))
+            conn.commit(); conn.close()
+            print(f"[管理端] 节点 {node_id} 磁盘 {mount} 锁定成功 ✅")
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "error": res.text}), 500
+    except Exception as e:
+        print(f"[管理端] 锁定磁盘异常: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ===============================================================
+# 🧹 永久解密磁盘
+# ===============================================================
+@app.route('/api/encryption/disk/decrypt', methods=['POST'])
+@login_required
+@admin_required
+def decrypt_disk():
+    """
+    永久解密磁盘（管理端转发到客户端）
+    """
+    data = request.get_json()
+    node_id = data.get('node_id')
+    mount = data.get('mount')
+    password = data.get('password')   # ✅ 补上密码
+
+    if not (node_id and mount and password):
+        return jsonify({"success": False, "error": "参数不完整"}), 400
+
+    node = next((n for n in NODES_CONFIG if n["id"] == node_id), None)
+    if not node:
+        return jsonify({"success": False, "error": "节点不存在"}), 404
+
+    node_url = f"http://{node['ip']}:{node['port']}/api/internal/encryption/decrypt-disk"
+    headers = {"X-NAS-Secret": NAS_SHARED_SECRET}
+
+    print(f"[管理端] 请求节点 {node_id} 永久解密磁盘 {mount}")
+
+    try:
+        res = requests.post(node_url, json={"drive": mount, "password": password}, headers=headers, timeout=10)
+        if res.status_code == 200 and res.json().get("success"):
+            conn = sqlite3.connect('nas_center.db')
+            cursor = conn.cursor()
+            cursor.execute("UPDATE disks SET is_encrypted=0, is_locked=0 WHERE node_id=? AND mount=?", (node_id, mount))
+            conn.commit()
+            conn.close()
+            print(f"[管理端] 节点 {node_id} 磁盘 {mount} 解密成功 ✅")
+            return jsonify({"success": True})
+        else:
+            print(f"[管理端] 节点响应错误: {res.text}")
+            return jsonify({"success": False, "error": res.text}), 500
+
+    except Exception as e:
+        print(f"[管理端] 永久解密异常: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# ===============================================================
+@app.route('/api/encryption/disk/change-password', methods=['POST'])
+@login_required
+@admin_required
+def change_disk_password():
+    data = request.get_json()
+    node_id = data.get('node_id')
+    mount = data.get('mount')
+    new_pw = data.get('new_password')
+
+    if not (node_id and mount and new_pw):
+        return jsonify({"success": False, "error": "参数不完整"}), 400
+
+    node = next((n for n in NODES_CONFIG if n["id"] == node_id), None)
+    if not node:
+        return jsonify({"success": False, "error": "节点不存在"}), 404
+
+    node_url = f"http://{node['ip']}:{node['port']}/api/internal/encryption/change-password"
+    headers = {"X-NAS-Secret": NAS_SHARED_SECRET}
+
+    print(f"[管理端] 请求节点 {node_id} 修改密码: {mount}")
+
+    try:
+        res = requests.post(node_url, json={"drive": mount, "new_password": new_pw}, headers=headers, timeout=10)
+        if res.status_code == 200 and res.json().get("success"):
+            print(f"[管理端] 节点 {node_id} 磁盘 {mount} 密码修改成功 ✅")
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "error": res.text}), 500
+    except Exception as e:
+        print(f"[管理端] 修改密码异常: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/encryption/disk/encrypt', methods=['POST'])
+@login_required
+@admin_required
+def encrypt_disk():
+    """
+    为指定节点的磁盘启用加密（管理端转发调用客户端）
+    前端请求示例:
+    {
+        "node_id": "node-5",
+        "mount": "D:\\",
+        "password": "123456"
+    }
+
+    实际逻辑:
+      1️⃣ 参数验证
+      2️⃣ 查找节点信息 (IP, Port)
+      3️⃣ 携带共享密钥 X-NAS-Secret 转发到节点
+      4️⃣ 若节点成功执行, 更新管理端数据库状态
+    """
+
+    data = request.get_json()
+    node_id = data.get("node_id")
+    mount = data.get("mount")
+    password = data.get("password")
+
+    # ---------------- 参数检查 ----------------
+    if not (node_id and mount and password):
+        return jsonify({"success": False, "error": "参数不完整"}), 400
+
+    # ---------------- 查找节点 ----------------
+    node = next((n for n in NODES_CONFIG if n.get("id") == node_id), None)
+    if not node:
+        return jsonify({"success": False, "error": f"未找到节点 {node_id}"}), 404
+
+    node_ip = node["ip"]
+    node_port = node["port"]
+    node_url = f"http://{node_ip}:{node_port}/api/internal/encryption/encrypt-disk"
+
+    print(f"[管理端] 请求节点 {node_id} ({node_ip}:{node_port}) 启用加密: {mount}")
+
+    # ---------------- 发起请求 ----------------
+    try:
+        payload = {"drive": mount, "password": password}
+        headers = {"X-NAS-Secret": NAS_SHARED_SECRET}
+
+        res = requests.post(node_url, json=payload, headers=headers, timeout=20)
+
+        # ---------------- 节点响应成功 ----------------
+        if res.status_code == 200:
+            result = res.json()
+            if result.get("success"):
+                # 更新数据库状态
+                conn = sqlite3.connect("nas_center.db")
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE disks
+                    SET is_encrypted = 1, is_locked = 1
+                    WHERE node_id = ? AND mount = ?
+                    """,
+                    (node_id, mount),
+                )
+                conn.commit()
+                conn.close()
+
+                print(f"[管理端] 节点 {node_id} 磁盘 {mount} 加密成功 ✅")
+                return jsonify({"success": True, "message": result.get("message", "加密成功")})
+
+            else:
+                print(f"[管理端] 节点执行失败: {result.get('error')}")
+                return jsonify({"success": False, "error": result.get("error", "节点执行失败")}), 500
+
+        # ---------------- 节点HTTP错误 ----------------
+        else:
+            print(f"[管理端] 节点返回异常状态: {res.status_code}, 内容: {res.text}")
+            return jsonify({"success": False, "error": f"节点HTTP错误: {res.text}"}), 500
+
+    # ---------------- 网络异常 ----------------
+    except requests.exceptions.RequestException as e:
+        print(f"[管理端] 无法连接节点 {node_id}: {e}")
+        return jsonify({"success": False, "error": f"无法连接节点 {node_ip}:{node_port}"}), 500
+
+    # ---------------- 其他异常 ----------------
+    except Exception as e:
+        print(f"[管理端] 启用加密异常: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/encryption/disk/unlock', methods=['POST'])
+@login_required
+@admin_required
+def unlock_disk():
+    """
+    解锁指定节点的磁盘
+    前端请求示例:
+    {
+        "node_id": "node-5",
+        "mount": "D:\\",
+        "password": "123456"
+    }
+    """
+
+    data = request.get_json()
+    node_id = data.get("node_id")
+    mount = data.get("mount")
+    password = data.get("password")
+
+    if not (node_id and mount and password):
+        return jsonify({"success": False, "error": "参数不完整"}), 400
+
+    # 查找节点信息
+    node = next((n for n in NODES_CONFIG if n.get("id") == node_id), None)
+    if not node:
+        return jsonify({"success": False, "error": f"未找到节点 {node_id}"}), 404
+
+    node_ip = node["ip"]
+    node_port = node["port"]
+    node_url = f"http://{node_ip}:{node_port}/api/internal/encryption/unlock-disk"
+
+    print(f"[管理端] 请求节点 {node_id} ({node_ip}:{node_port}) 解锁磁盘: {mount}")
+
+    try:
+        payload = {"drive": mount, "password": password}
+        headers = {"X-NAS-Secret": NAS_SHARED_SECRET}
+
+        res = requests.post(node_url, json=payload, headers=headers, timeout=20)
+
+        if res.status_code == 200:
+            result = res.json()
+            if result.get("success"):
+                # ✅ 节点成功执行解锁，更新数据库状态
+                conn = sqlite3.connect("nas_center.db")
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE disks SET is_locked = 0 WHERE node_id=? AND mount=?",
+                    (node_id, mount),
+                )
+                conn.commit()
+                conn.close()
+
+                print(f"[管理端] 节点 {node_id} 磁盘 {mount} 解锁成功 ✅")
+                return jsonify({"success": True, "message": result.get("message", "解锁成功")})
+            else:
+                print(f"[管理端] 节点执行失败: {result.get('error')}")
+                return jsonify({"success": False, "error": result.get("error", "解锁失败")}), 500
+
+        else:
+            print(f"[管理端] 节点返回HTTP错误 {res.status_code}: {res.text}")
+            return jsonify({"success": False, "error": f"节点HTTP错误: {res.text}"}), 500
+
+    except requests.exceptions.RequestException as e:
+        print(f"[管理端] 无法连接节点 {node_id}: {e}")
+        return jsonify({"success": False, "error": f"无法连接节点 {node_ip}:{node_port}"}), 500
+
+    except Exception as e:
+        print(f"[管理端] 解锁磁盘异常: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 # ========== [新增] 客户端权限查询接口 ==========
 
@@ -1063,6 +1477,35 @@ def get_user_permission():
 
 
 # ========== [新增] 代理到客户端的请求 ==========
+@app.route('/api/nodes/register', methods=['POST'])
+def register_node():
+    data = request.json
+    ip = data.get('ip')
+    port = data.get('port')
+
+    if not ip or not port:
+        return jsonify({'error': '缺少参数'}), 400
+
+    # ✅ 检查是否已存在同一IP+端口的节点
+    for n in NODES_CONFIG:
+        if n["ip"] == ip and n["port"] == port:
+            print(f"[主控] 节点已存在: {ip}:{port} -> {n['id']}")
+            return jsonify({"success": True, "node_id": n["id"]})
+
+    # 否则新建节点
+    node_id = f"node-{len(NODES_CONFIG)+1}"
+    node_info = {
+        "id": node_id,
+        "name": f"NAS-节点-{node_id}",
+        "ip": ip,
+        "port": port,
+        "type": "remote",
+        "status": "online"
+    }
+    NODES_CONFIG.append(node_info)
+    print(f"[主控] 已注册新节点: {node_id} ({ip}:{port})")
+    return jsonify({"success": True, "node_id": node_id})
+
 
 @app.route('/api/nodes/<node_id>/proxy/<path:api_path>', methods=['GET', 'POST', 'PUT', 'DELETE'])
 @login_required
