@@ -132,6 +132,41 @@ createApp({
             this.showStartMenu = false;
         },
         // ============ 节点管理 ============
+
+
+
+async renameNode(window, node) {
+    const newName = prompt('请输入新的节点名称:', node.name);
+
+    if (!newName) {
+        return; // 用户取消
+    }
+
+    if (newName === node.name) {
+        alert('名称未改变');
+        return;
+    }
+
+    if (newName.trim().length === 0) {
+        alert('节点名称不能为空');
+        return;
+    }
+
+    try {
+        const response = await axios.put(
+            `${this.apiBaseUrl}/api/nodes/${node.id}/rename`,
+            { new_name: newName }
+        );
+
+        if (response.data.success) {
+            alert(`节点改名成功: ${response.data.old_name} → ${response.data.new_name}`);
+            // 刷新节点列表
+            this.loadNodesData(window);
+        }
+    } catch (error) {
+        alert('改名失败: ' + (error.response?.data?.error || error.message));
+    }
+},
         openNodeManagement() {
             const win = this.createWindow({
                 type: 'nodes',
@@ -445,9 +480,113 @@ returnToEncryptionOverview(window) {
 
     // ============ 纠删码配置 ============
     openECConfig() {
-        alert('纠删码配置功能开发中...');
-    },
+    const existing = this.windows.find(w => w.type === 'ec-config');
+    if (existing) {
+        this.focusWindow(existing.id);
+        this.showStartMenu = false;
+        return;
+    }
 
+    const win = this.createWindow({
+        type: 'ec-config',
+        title: '纠删码配置',
+        icon: '🛡️',
+        width: 1000,
+        height: 700,
+        currentTab: 'config',  // 'config', 'status', 'recovery'
+        ecConfig: null,
+        capacity: null,
+        availableDisks: [],
+        loading: true,
+
+        // 配置表单
+        configForm: {
+            k: 4,
+            m: 2,
+            disks: []
+        }
+    });
+
+    this.loadECConfig(win);
+    this.showStartMenu = false;
+},
+
+async loadECConfig(win) {
+    win.loading = true;
+    try {
+        // 👇 先加载节点列表(这样下拉框就有数据了)
+        const nodesRes = await axios.get(`${this.apiBaseUrl}/api/nodes`);
+       win.nodes = nodesRes.data || [];  // 👈 直接使用 data,不是 data.nodes
+
+        // 加载所有策略
+        const policiesRes = await axios.get(`${this.apiBaseUrl}/api/ec_policies`);
+        win.policies = policiesRes.data.policies || [];
+
+        // 如果有选中的节点,加载该节点的配置
+        if (win.selectedNodeId) {
+            const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${win.selectedNodeId}/ec_config`);
+            win.ecConfig = res.data.config;
+            win.capacity = res.data.capacity;
+
+            // 加载可用磁盘
+            const diskRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${win.selectedNodeId}/disks`);
+            win.availableDisks = diskRes.data.disks || [];
+        } else {
+            // 如果没有选中节点,清空配置
+            win.ecConfig = null;
+            win.capacity = null;
+            win.availableDisks = [];
+        }
+    } catch (error) {
+        console.error('加载纠删码配置失败:', error);
+        alert('加载失败: ' + (error.response?.data?.error || error.message));
+    } finally {
+        win.loading = false;
+    }
+},
+
+// 如果没有选中节点,不能保存配置
+async saveECConfig(win) {
+    if (!win.selectedNodeId) {
+        alert('请先选择要配置的节点');
+        return;
+    }
+
+    if (win.configForm.disks.length < win.configForm.k + win.configForm.m) {
+        alert(`至少需要选择 ${win.configForm.k + win.configForm.m} 个磁盘`);
+        return;
+    }
+
+    try {
+        await axios.post(`${this.apiBaseUrl}/api/nodes/${win.selectedNodeId}/ec_config`, {
+            scheme: 'rs',
+            k: win.configForm.k,
+            m: win.configForm.m,
+            disks: win.configForm.disks
+        });
+        alert('纠删码配置保存成功!');
+        this.loadECConfig(win);
+    } catch (error) {
+        alert('保存失败: ' + (error.response?.data?.error || error.message));
+    }
+},
+
+async deleteECConfig(win) {
+    if (!win.selectedNodeId) {
+        alert('请先选择要配置的节点');
+        return;
+    }
+
+    if (!confirm('确定要删除纠删码配置吗?这将清除所有纠删码数据!')) return;
+
+    try {
+        await axios.delete(`${this.apiBaseUrl}/api/nodes/${win.selectedNodeId}/ec_config`);
+        alert('纠删码配置已删除');
+        this.loadECConfig(win);
+    } catch (error) {
+        alert('删除失败: ' + (error.response?.data?.error || error.message));
+    }
+},
 
     // ============ 系统监控 ============
     openSystemMonitor() {

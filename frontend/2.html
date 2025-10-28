@@ -2002,9 +2002,38 @@ createApp({
 
     // ============ 纠删码配置 ============
     openECConfig() {
-      alert('纠删码配置功能开发中...');
-    },
+    const existing = this.windows.find(w => w.type === 'ec-config');
+    if (existing) {
+        this.focusWindow(existing.id);
+        this.showStartMenu = false;
+        return;
+    }
 
+    const win = this.createWindow({
+        type: 'ec-config',
+        title: '纠删码配置',
+        icon: '🛡️',
+        width: 1000,
+        height: 700,
+        currentTab: 'config',
+        ecConfig: null,
+        capacity: null,
+        availableDisks: [],
+        selectedNodeId: null,  // 👈 添加这一行
+        nodes: [],             // 👈 添加这一行
+        policies: [],          // 👈 添加这一行
+        loading: true,
+
+        configForm: {
+            k: 4,
+            m: 2,
+            disks: []
+        }
+    });
+
+    this.loadECConfig(win);
+    this.showStartMenu = false;
+},
     // ============ 系统监控 ============
     openSystemMonitor() {
       const win = this.createWindow({

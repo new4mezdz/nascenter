@@ -7,6 +7,7 @@ import sqlite3, json, time
 from config import NAS_SHARED_SECRET
 import subprocess
 from pathlib import Path
+
 NGROK_PATH = Path(__file__).with_name('ngrok.exe')
 ngrok_url_global = None
 FLASK_PORT = 8080
@@ -45,7 +46,121 @@ from datetime import datetime, timedelta
 ACCESS_TOKEN_SECRET = 'your-access-token-secret-key'  # 应该和客户端共享
 
 from functools import wraps
+# ========== 节点配置管理 ==========
+NODES_CONFIG_FILE = 'nodes_config.json'
 
+# 存储活跃节点信息(内存中)
+ACTIVE_NODES = {}  # {node_id: {name, ip, port, stats, last_heartbeat}}
+
+
+@app.route('/api/node-register', methods=['POST'])
+def node_register():
+    """接收节点注册/心跳"""
+    data = request.json
+
+    # 验证密钥
+    if data.get('secret') != NAS_SHARED_SECRET:
+        return jsonify({'error': '密钥验证失败'}), 403
+
+    node_id = data.get('node_id')
+
+    # 更新活跃节点信息
+    ACTIVE_NODES[node_id] = {
+        'id': node_id,
+        'name': data.get('name', '未命名节点'),
+        'ip': data.get('ip'),
+        'port': data.get('port'),
+        'status': 'online',
+        'stats': data.get('stats', {}),
+        'last_heartbeat': datetime.now().isoformat()
+    }
+
+    # 保存到配置文件(可选,用于持久化)
+    update_node_config(node_id, data)
+
+    return jsonify({'success': True, 'message': '注册成功'})
+
+
+@app.route('/api/nodes', methods=['GET'])
+def get_all_nodes():
+    """获取所有节点 - 优先从内存读取,兜底从配置文件"""
+    nodes = []
+    now = datetime.now()
+
+    # 1. 从内存中读取活跃节点(已注册的)
+    for node_id, node_info in ACTIVE_NODES.items():
+        last_heartbeat = datetime.fromisoformat(node_info['last_heartbeat'])
+
+        # 超过2分钟没心跳,标记为离线
+        if (now - last_heartbeat).total_seconds() > 120:
+            node_info['status'] = 'offline'
+
+        # 合并统计信息
+        stats = node_info.get('stats', {})
+        nodes.append({
+            'id': node_info['id'],
+            'name': node_info['name'],
+            'ip': node_info['ip'],
+            'port': node_info['port'],
+            'status': node_info['status'],
+            'cpu_usage': stats.get('cpu_percent', 0),
+            'memory_usage': stats.get('memory_percent', 0),
+            'disk_usage': stats.get('disk_percent', 0),
+            'total_storage': stats.get('disk_total_gb', 0),
+            'used_storage': stats.get('disk_used_gb', 0),
+            'cpu_temp': stats.get('cpu_temp_celsius', 0),
+            'last_updated': node_info['last_heartbeat']
+        })
+
+    # 2. 如果内存中没有节点,从配置文件读取(兜底)
+    if not nodes:
+        for node_config in NODES_CONFIG:
+            # 尝试获取节点信息
+            try:
+                node_data = fetch_node_data(node_config, timeout=3)
+                nodes.append(node_data)
+            except:
+                # 如果获取失败,标记为离线
+                nodes.append({
+                    'id': node_config['id'],
+                    'name': node_config.get('name', '未命名节点'),
+                    'ip': node_config['ip'],
+                    'port': node_config['port'],
+                    'status': 'offline',
+                    'cpu_usage': 0,
+                    'memory_usage': 0,
+                    'disk_usage': 0,
+                    'total_storage': 0,
+                    'used_storage': 0,
+                    'cpu_temp': 0,
+                    'last_updated': now.isoformat()
+                })
+
+    return jsonify(nodes)
+def load_nodes_config():
+    try:
+        with open(NODES_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        # 默认配置
+        default_config = [
+            {
+                "id": "node-5",
+                "name": "我的本地节点",
+                "ip": "127.0.0.1",
+                "port": 5000,
+                "type": "local"
+            }
+        ]
+        save_nodes_config(default_config)
+        return default_config
+
+def save_nodes_config(config):
+    with open(NODES_CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+
+# 加载节点配置
+NODES_CONFIG = load_nodes_config()
 def admin_required(f):
     """要求管理员权限的装饰器"""
     @wraps(f)
@@ -169,17 +284,7 @@ def generate_node_access_token():
         'success': True,
         'token': token
     })
-# 节点配置列表
-NODES_CONFIG = [
 
-    {
-        "id": "node-5",
-        "name": "我的本地节点",
-        "ip": "127.0.0.1",
-        "port": 5000,
-        "type": "local"
-    }
-]
 
 
 
@@ -668,20 +773,82 @@ def permission_required(required_level_name):
 
         return decorated_function
     return decorator
-@app.route('/api/nodes', methods=['GET'])
-def get_all_nodes():
-    """获取所有 NAS 节点的真实数据"""
-    nodes_data = []
-
-    for node_config in NODES_CONFIG:
-        print(f"[INFO] 正在获取节点数据: {node_config['name']}")
-        node_data = fetch_node_data(node_config)
-        nodes_data.append(node_data)
-
-    return jsonify(nodes_data)
 
 
 # ========== 用户管理 API ==========
+
+def update_node_config(node_id, data):
+    """更新或添加节点配置到文件"""
+    config = load_nodes_config()
+
+    # 查找是否已存在
+    existing = next((n for n in config if n['id'] == node_id), None)
+
+    if existing:
+        # 更新现有节点
+        existing['name'] = data.get('name', existing.get('name'))
+        existing['ip'] = data.get('ip', existing.get('ip'))
+        existing['port'] = data.get('port', existing.get('port'))
+    else:
+        # 添加新节点
+        config.append({
+            'id': node_id,
+            'name': data.get('name', '未命名节点'),
+            'ip': data.get('ip'),
+            'port': data.get('port'),
+            'type': 'auto'  # 标记为自动注册
+        })
+
+    save_nodes_config(config)
+# 替换 app.py 中的 rename_node 函数 (约第 808 行)
+
+@app.route('/api/nodes/<node_id>/rename', methods=['PUT'])
+@admin_required
+def rename_node(node_id):
+    """修改节点名称 - [修正版]"""
+    data = request.json
+    new_name = data.get('new_name', '').strip()
+
+    if not new_name:
+        return jsonify({'error': '节点名称不能为空'}), 400
+
+    # 1. [修改] 加载持久化配置
+    config = load_nodes_config()
+    node_in_config = next((n for n in config if n['id'] == node_id), None)
+
+    if not node_in_config:
+        # 如果连配置文件里都没有，那才是真的"节点不存在"
+        return jsonify({'error': '节点不存在于配置文件中'}), 404
+
+    # 2. [修改] 更新持久化配置
+    old_name = node_in_config['name']
+    node_in_config['name'] = new_name
+    save_nodes_config(config) # 关键：保存回 nodes_config.json
+
+    print(f"[配置] 节点 {node_id} 已从 '{old_name}' 持久化重命名为 '{new_name}'")
+
+    # 3. [保留] 检查并更新内存中的活跃节点 (如果它在线的话)
+    if node_id in ACTIVE_NODES:
+        ACTIVE_NODES[node_id]['name'] = new_name
+        print(f"[内存] 活跃节点 {node_id} 已同步重命名")
+
+        # (可选:通知客户端更新)
+        try:
+            node = ACTIVE_NODES[node_id]
+            requests.post(
+                f"http://{node['ip']}:{node['port']}/api/update-name",
+                json={'name': new_name},
+                timeout=5
+            )
+        except:
+            pass  # 不影响主流程
+
+    return jsonify({
+        'success': True,
+        'message': '节点改名成功 (已持久化)',
+        'old_name': old_name,
+        'new_name': new_name
+    })
 @app.route('/api/users', methods=['GET'])
 def get_users():
     conn = sqlite3.connect('nas_center.db')
@@ -1866,6 +2033,296 @@ def delete_file(node_id):
     except Exception as e:
         return jsonify({"error": f"在节点 {node_config['name']} 上删除文件失败", "message": str(e)}), 500
 
+
+def get_db_connection():
+    """获取数据库连接"""
+    conn = sqlite3.connect('nas_center.db')
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+
+# ========== 纠删码策略管理 ==========
+
+def init_ec_tables():
+    """初始化纠删码相关表"""
+    conn = get_db_connection()  # 使用你的数据库连接方法
+    cursor = conn.cursor()
+
+    # 纠删码策略表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ec_policies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            description TEXT,
+            policy_type TEXT NOT NULL,  -- 'intra_node' 节点内, 'inter_node' 节点间
+            k INTEGER NOT NULL,
+            m INTEGER NOT NULL,
+            status TEXT DEFAULT 'active',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # 纠删码策略应用记录表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ec_policy_applications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            policy_id INTEGER NOT NULL,
+            node_id TEXT,  -- 如果是节点内策略,关联节点ID
+            node_group TEXT,  -- 如果是节点间策略,关联节点组
+            disks TEXT,  -- JSON格式存储磁盘列表
+            applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (policy_id) REFERENCES ec_policies(id)
+        )
+    ''')
+
+    conn.commit()
+    conn.close()
+
+
+# 在应用启动时调用
+with app.app_context():
+    init_ec_tables()
+
+
+# ========== API接口 ==========
+
+@app.route('/api/ec_policies', methods=['GET'])
+@login_required
+def get_ec_policies():
+    """获取所有纠删码策略"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        SELECT id, name, description, policy_type, k, m, status, created_at
+        FROM ec_policies
+        ORDER BY created_at DESC
+    ''')
+
+    policies = []
+    for row in cursor.fetchall():
+        policy = {
+            'id': row[0],
+            'name': row[1],
+            'description': row[2],
+            'policy_type': row[3],
+            'k': row[4],
+            'm': row[5],
+            'status': row[6],
+            'created_at': row[7]
+        }
+
+        # 查询应用情况
+        cursor.execute('''
+            SELECT COUNT(*) FROM ec_policy_applications 
+            WHERE policy_id = ?
+        ''', (policy['id'],))
+        policy['application_count'] = cursor.fetchone()[0]
+
+        policies.append(policy)
+
+    conn.close()
+    return jsonify({'success': True, 'policies': policies})
+
+
+@app.route('/api/ec_policies', methods=['POST'])
+@admin_required
+def create_ec_policy():
+    """创建纠删码策略"""
+    data = request.json
+    name = data.get('name')
+    description = data.get('description', '')
+    policy_type = data.get('policy_type', 'intra_node')  # 默认节点内
+    k = data.get('k')
+    m = data.get('m')
+
+    if not name or not k or not m:
+        return jsonify({'error': '缺少必要参数'}), 400
+
+    if policy_type not in ['intra_node', 'inter_node']:
+        return jsonify({'error': '策略类型无效'}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        INSERT INTO ec_policies (name, description, policy_type, k, m, status)
+        VALUES (?, ?, ?, ?, ?, 'active')
+    ''', (name, description, policy_type, k, m))
+
+    policy_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return jsonify({'success': True, 'message': '策略创建成功', 'policy_id': policy_id})
+
+
+@app.route('/api/ec_policies/<int:policy_id>', methods=['DELETE'])
+@admin_required
+def delete_ec_policy(policy_id):
+    """删除纠删码策略"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # 检查是否有应用记录
+    cursor.execute('SELECT COUNT(*) FROM ec_policy_applications WHERE policy_id = ?', (policy_id,))
+    app_count = cursor.fetchone()[0]
+
+    if app_count > 0:
+        conn.close()
+        return jsonify({'error': f'该策略已被应用到{app_count}个位置,无法删除'}), 400
+
+    cursor.execute('DELETE FROM ec_policies WHERE id = ?', (policy_id,))
+
+    if cursor.rowcount == 0:
+        conn.close()
+        return jsonify({'error': '策略不存在'}), 404
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({'success': True, 'message': '策略删除成功'})
+
+
+# ========== 应用策略到节点 ==========
+
+@app.route('/api/ec_policies/<int:policy_id>/apply', methods=['POST'])
+@admin_required
+def apply_ec_policy(policy_id):
+    """将纠删码策略应用到节点"""
+    data = request.json
+    node_id = data.get('node_id')
+    disks = data.get('disks', [])
+
+    if not node_id:
+        return jsonify({'error': '缺少节点ID'}), 400
+
+    # 获取策略信息
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT policy_type, k, m FROM ec_policies WHERE id = ?', (policy_id,))
+    policy = cursor.fetchone()
+
+    if not policy:
+        conn.close()
+        return jsonify({'error': '策略不存在'}), 404
+
+    policy_type, k, m = policy[0], policy[1], policy[2]
+
+    if policy_type != 'intra_node':
+        conn.close()
+        return jsonify({'error': '当前仅支持节点内策略'}), 400
+
+    # 获取节点配置
+    cursor.execute('SELECT ip, port FROM nodes WHERE id = ?', (node_id,))
+    node = cursor.fetchone()
+
+    if not node:
+        conn.close()
+        return jsonify({'error': '节点不存在'}), 404
+
+    node_ip, node_port = node[0], node[1]
+
+    # 转发配置到节点
+    try:
+        node_url = f"http://{node_ip}:{node_port}/api/ec_config"
+        response = requests.post(node_url, json={
+            'scheme': 'rs',
+            'k': k,
+            'm': m,
+            'disks': disks
+        }, timeout=10)
+
+        if response.status_code == 200:
+            # 记录应用
+            cursor.execute('''
+                INSERT INTO ec_policy_applications (policy_id, node_id, disks)
+                VALUES (?, ?, ?)
+            ''', (policy_id, node_id, json.dumps(disks)))
+            conn.commit()
+            conn.close()
+
+            return jsonify({'success': True, 'message': '策略应用成功'})
+        else:
+            conn.close()
+            return jsonify({'error': f'节点返回错误: {response.text}'}), 500
+
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': f'应用策略失败: {str(e)}'}), 500
+
+
+# ========== 查询节点当前纠删码配置 ==========
+
+@app.route('/api/nodes/<node_id>/ec_config', methods=['GET'])
+@login_required
+def get_node_ec_config(node_id):
+    """获取节点的纠删码配置"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT ip, port FROM nodes WHERE id = ?', (node_id,))
+    node = cursor.fetchone()
+
+    if not node:
+        conn.close()
+        return jsonify({'error': '节点不存在'}), 404
+
+    node_ip, node_port = node[0], node[1]
+
+    try:
+        # 从节点获取配置
+        response = requests.get(f"http://{node_ip}:{node_port}/api/ec_config", timeout=5)
+
+        if response.status_code == 200:
+            data = response.json()
+            conn.close()
+            return jsonify(data)
+        else:
+            conn.close()
+            return jsonify({'error': '获取配置失败'}), 500
+
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': f'请求节点失败: {str(e)}'}), 500
+
+
+@app.route('/api/nodes/<node_id>/ec_config', methods=['DELETE'])
+@admin_required
+def delete_node_ec_config(node_id):
+    """删除节点的纠删码配置"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT ip, port FROM nodes WHERE id = ?', (node_id,))
+    node = cursor.fetchone()
+
+    if not node:
+        conn.close()
+        return jsonify({'error': '节点不存在'}), 404
+
+    node_ip, node_port = node[0], node[1]
+
+    try:
+        # 删除节点配置
+        response = requests.delete(f"http://{node_ip}:{node_port}/api/ec_config", timeout=10)
+
+        if response.status_code == 200:
+            # 删除应用记录
+            cursor.execute('DELETE FROM ec_policy_applications WHERE node_id = ?', (node_id,))
+            conn.commit()
+            conn.close()
+
+            return jsonify({'success': True, 'message': '配置删除成功'})
+        else:
+            conn.close()
+            return jsonify({'error': '删除配置失败'}), 500
+
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': f'请求节点失败: {str(e)}'}), 500
 
 @app.route('/api/files/<node_id>/mkdir', methods=['POST'])
 @login_required

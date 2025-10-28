@@ -494,6 +494,10 @@
                       </td>
                       <td class="p-4">
                         <div class="flex gap-2">
+                           <button @click="renameNode(window, node)"
+            class="px-3 py-1 bg-purple-500 hover:bg-purple-600 text-white rounded text-xs">
+      ✏️ 改名
+    </button>
                           <button @click="viewNodeDisks(window, node)"
                                   :disabled="node.status === 'offline'"
                                   :class="node.status === 'offline' ? 'opacity-50 cursor-not-allowed bg-gray-400' : 'bg-blue-500 hover:bg-blue-600'"
@@ -1069,7 +1073,7 @@
             </div>
           </div>
 
-          <!-- 加密管理窗口 -->
+
         <!-- 🔐 加密管理窗口 -->
 <div v-if="window.type === 'encryption'" class="h-full flex flex-col">
 
@@ -1179,6 +1183,397 @@
   </div>
 </div>
 
+</div>
+
+<!-- 纠删码配置窗口 -->
+<div v-else-if="window.type === 'ec-config'" class="h-full flex flex-col bg-gray-50">
+  <!-- 标签页导航 -->
+  <div class="flex border-b bg-white">
+    <button @click="window.currentTab = 'config'"
+            :class="window.currentTab === 'config' ? 'border-b-2 border-blue-500 text-blue-600 font-semibold' : 'text-gray-600'"
+            class="px-6 py-3 transition">
+      ⚙️ 配置
+    </button>
+    <button @click="window.currentTab = 'status'"
+            :class="window.currentTab === 'status' ? 'border-b-2 border-blue-500 text-blue-600 font-semibold' : 'text-gray-600'"
+            class="px-6 py-3 transition">
+      📊 状态
+    </button>
+    <button @click="window.currentTab = 'recovery'"
+            :class="window.currentTab === 'recovery' ? 'border-b-2 border-blue-500 text-blue-600 font-semibold' : 'text-gray-600'"
+            class="px-6 py-3 transition">
+      🔧 恢复
+    </button>
+  </div>
+
+  <!-- 配置标签页 -->
+  <div v-if="window.currentTab === 'config'" class="flex-1 overflow-auto p-6">
+    <div v-if="window.loading" class="flex items-center justify-center h-64">
+      <div class="loading"></div>
+    </div>
+
+    <div v-else>
+
+       <div class="bg-white rounded-lg shadow p-4 border mb-6">
+        <label class="block text-sm font-semibold mb-2">选择要配置的节点 *</label>
+        <select v-model="window.selectedNodeId"
+                @change="loadECConfig(window)"
+                class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="">-- 请选择节点 --</option>
+          <option v-for="node in window.nodes" :key="node.id" :value="node.id">
+            {{ node.name }} ({{ node.ip }}:{{ node.port }})
+          </option>
+        </select>
+      </div>
+      <!-- 👆👆👆 节点选择框结束 👆👆👆 -->
+      <!-- 当前配置状态卡片 -->
+      <div v-if="window.ecConfig" class="bg-white rounded-lg shadow p-6 border mb-6">
+        <div class="flex justify-between items-start mb-4">
+          <div>
+            <h3 class="text-xl font-bold mb-2 flex items-center gap-2">
+              <span>✅</span> 纠删码已启用
+            </h3>
+            <div class="text-sm text-gray-600">当前使用 RS 纠删码算法保护节点内磁盘数据</div>
+          </div>
+          <button @click="deleteECConfig(window)"
+                  class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm">
+            删除配置
+          </button>
+        </div>
+
+        <div class="grid grid-cols-4 gap-4 pt-4 border-t">
+          <div class="bg-blue-50 p-4 rounded-lg">
+            <div class="text-sm text-gray-600 mb-1">数据块 (K)</div>
+            <div class="text-3xl font-bold text-blue-600">{{ window.ecConfig.k }}</div>
+          </div>
+          <div class="bg-purple-50 p-4 rounded-lg">
+            <div class="text-sm text-gray-600 mb-1">校验块 (M)</div>
+            <div class="text-3xl font-bold text-purple-600">{{ window.ecConfig.m }}</div>
+          </div>
+          <div class="bg-green-50 p-4 rounded-lg">
+            <div class="text-sm text-gray-600 mb-1">容错能力</div>
+            <div class="text-3xl font-bold text-green-600">{{ window.ecConfig.m }}</div>
+          </div>
+          <div class="bg-orange-50 p-4 rounded-lg">
+            <div class="text-sm text-gray-600 mb-1">存储开销</div>
+            <div class="text-3xl font-bold text-orange-600">
+              {{ ((window.ecConfig.k + window.ecConfig.m) / window.ecConfig.k * 100 - 100).toFixed(0) }}%
+            </div>
+          </div>
+        </div>
+
+        <!-- 使用的磁盘列表 -->
+        <div class="mt-6">
+          <div class="text-sm font-semibold mb-3">已配置磁盘 ({{ window.ecConfig.disks?.length || 0 }}个)</div>
+          <div class="grid grid-cols-3 gap-3">
+            <div v-for="(disk, index) in window.ecConfig.disks" :key="index"
+                 class="bg-gray-50 p-3 rounded-lg border flex items-center gap-2">
+              <span class="text-2xl">💾</span>
+              <span class="font-mono text-sm">{{ disk }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 容量信息 -->
+        <div v-if="window.capacity" class="mt-6 pt-6 border-t">
+          <div class="text-sm font-semibold mb-3">容量统计</div>
+          <div class="grid grid-cols-3 gap-4">
+            <div>
+              <div class="text-xs text-gray-600 mb-1">可用总容量</div>
+              <div class="text-xl font-bold text-blue-600">
+                {{ formatBytes(window.capacity.usable_total_bytes) }}
+              </div>
+            </div>
+            <div>
+              <div class="text-xs text-gray-600 mb-1">可用剩余容量</div>
+              <div class="text-xl font-bold text-green-600">
+                {{ formatBytes(window.capacity.usable_free_bytes) }}
+              </div>
+            </div>
+            <div>
+              <div class="text-xs text-gray-600 mb-1">磁盘不平衡比例</div>
+              <div class="text-xl font-bold"
+                   :class="window.capacity.imbalance_ratio > 1.2 ? 'text-red-600' : 'text-green-600'">
+                {{ window.capacity.imbalance_ratio.toFixed(2) }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 创建新配置表单 -->
+      <div v-else class="max-w-3xl mx-auto">
+        <div class="bg-white rounded-lg shadow p-8 border">
+          <div class="text-center mb-8">
+            <div class="text-6xl mb-4">🛡️</div>
+            <h3 class="text-2xl font-bold mb-2">配置纠删码保护</h3>
+            <p class="text-gray-600">为节点内的多个磁盘配置纠删码,提高数据可靠性</p>
+          </div>
+
+          <div class="space-y-6">
+            <!-- K值(数据块) -->
+            <div>
+              <label class="block text-sm font-semibold mb-2">
+                数据块数量 (K) *
+                <span class="text-xs text-gray-500 font-normal ml-2">原始数据分成几块</span>
+              </label>
+              <input v-model.number="window.configForm.k"
+                     type="number"
+                     min="2"
+                     max="16"
+                     class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+
+            <!-- M值(校验块) -->
+            <div>
+              <label class="block text-sm font-semibold mb-2">
+                校验块数量 (M) *
+                <span class="text-xs text-gray-500 font-normal ml-2">最多容忍几个磁盘损坏</span>
+              </label>
+              <input v-model.number="window.configForm.m"
+                     type="number"
+                     min="1"
+                     max="8"
+                     class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+
+            <!-- 磁盘选择 -->
+            <div>
+              <label class="block text-sm font-semibold mb-2">
+                选择磁盘 *
+                <span class="text-xs text-gray-500 font-normal ml-2">
+                  至少需要 {{ window.configForm.k + window.configForm.m }} 个磁盘
+                </span>
+              </label>
+              <div class="border rounded-lg p-4 max-h-64 overflow-auto">
+                <div v-if="window.availableDisks.length === 0" class="text-center py-8 text-gray-500">
+                  <div class="text-4xl mb-2">💾</div>
+                  <div class="text-sm">暂无可用磁盘</div>
+                </div>
+                <label v-for="disk in window.availableDisks" :key="disk.mount"
+                       class="flex items-center gap-3 p-3 hover:bg-gray-50 rounded cursor-pointer mb-2">
+                  <input type="checkbox"
+                         :value="disk.mount"
+                         v-model="window.configForm.disks"
+                         class="w-4 h-4">
+                  <div class="flex-1">
+                    <div class="flex items-center gap-2">
+                      <span class="text-xl">💾</span>
+                      <span class="font-mono font-semibold">{{ disk.mount }}</span>
+                    </div>
+                    <div class="text-xs text-gray-600 mt-1">
+                      总容量: {{ formatBytes(disk.total) }} |
+                      可用: {{ formatBytes(disk.free) }} ({{ ((disk.free / disk.total) * 100).toFixed(1) }}%)
+                    </div>
+                  </div>
+                </label>
+              </div>
+              <div class="text-xs text-gray-600 mt-2">
+                已选择 {{ window.configForm.disks.length }} 个磁盘
+              </div>
+            </div>
+
+            <!-- 效果预览 -->
+            <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
+              <div class="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+                <span>💡</span> 配置效果预览
+              </div>
+              <div class="space-y-2 text-sm text-blue-800">
+                <div class="flex justify-between">
+                  <span>总块数:</span>
+                  <span class="font-bold">{{ window.configForm.k + window.configForm.m }} 块</span>
+                </div>
+                <div class="flex justify-between">
+                  <span>容错能力:</span>
+                  <span class="font-bold">最多 {{ window.configForm.m }} 个磁盘损坏</span>
+                </div>
+                <div class="flex justify-between">
+                  <span>存储开销:</span>
+                  <span class="font-bold">
+                    {{ ((window.configForm.k + window.configForm.m) / window.configForm.k * 100 - 100).toFixed(1) }}%
+                  </span>
+                </div>
+                <div class="flex justify-between">
+                  <span>示例:</span>
+                  <span class="font-bold">
+                    1GB 数据需要 {{ ((window.configForm.k + window.configForm.m) / window.configForm.k).toFixed(2) }}GB 空间
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 按钮 -->
+            <div class="flex gap-3 pt-4">
+              <button @click="saveECConfig(window)"
+                      :disabled="window.configForm.disks.length < window.configForm.k + window.configForm.m"
+                      :class="window.configForm.disks.length < window.configForm.k + window.configForm.m ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600'"
+                      class="flex-1 px-6 py-3 text-white rounded-lg font-semibold">
+                保存配置
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 状态标签页 -->
+  <div v-else-if="window.currentTab === 'status'" class="flex-1 overflow-auto p-6">
+    <div v-if="!window.ecConfig" class="flex items-center justify-center h-full">
+      <div class="text-center">
+        <div class="text-6xl mb-4">⚠️</div>
+        <div class="text-xl font-semibold text-gray-700 mb-2">未配置纠删码</div>
+        <div class="text-gray-600 mb-6">请先在"配置"标签页配置纠删码</div>
+        <button @click="window.currentTab = 'config'"
+                class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+          前往配置
+        </button>
+      </div>
+    </div>
+
+    <div v-else>
+      <!-- 状态概览 -->
+      <div class="grid grid-cols-3 gap-4 mb-6">
+        <div class="bg-white rounded-lg shadow p-6 border">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm text-gray-600">纠删码状态</div>
+            <span class="text-3xl">✅</span>
+          </div>
+          <div class="text-2xl font-bold text-green-600">运行中</div>
+        </div>
+        <div class="bg-white rounded-lg shadow p-6 border">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm text-gray-600">纠删码方案</div>
+            <span class="text-3xl">🛡️</span>
+          </div>
+          <div class="text-2xl font-bold text-blue-600">RS {{ window.ecConfig.k }}+{{ window.ecConfig.m }}</div>
+        </div>
+        <div class="bg-white rounded-lg shadow p-6 border">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm text-gray-600">配置磁盘数</div>
+            <span class="text-3xl">💾</span>
+          </div>
+          <div class="text-2xl font-bold text-purple-600">{{ window.ecConfig.disks?.length || 0 }}</div>
+        </div>
+      </div>
+
+      <!-- 磁盘状态详情 -->
+      <div class="bg-white rounded-lg shadow border">
+        <div class="p-6 border-b">
+          <h4 class="font-bold text-lg">磁盘状态详情</h4>
+        </div>
+        <div class="overflow-auto">
+          <table class="w-full">
+            <thead class="bg-gray-50 border-b">
+              <tr>
+                <th class="text-left p-4 font-semibold text-gray-700">磁盘</th>
+                <th class="text-left p-4 font-semibold text-gray-700">总容量</th>
+                <th class="text-left p-4 font-semibold text-gray-700">已用</th>
+                <th class="text-left p-4 font-semibold text-gray-700">可用</th>
+                <th class="text-left p-4 font-semibold text-gray-700">使用率</th>
+                <th class="text-left p-4 font-semibold text-gray-700">状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(disk, index) in window.ecConfig.disks" :key="index" class="border-b hover:bg-gray-50">
+                <td class="p-4">
+                  <div class="flex items-center gap-2">
+                    <span class="text-2xl">💾</span>
+                    <span class="font-mono font-semibold">{{ disk }}</span>
+                  </div>
+                </td>
+                <td class="p-4">
+                  <span v-if="window.capacity && window.capacity.disks[index]">
+                    {{ formatBytes(window.capacity.disks[index].total) }}
+                  </span>
+                  <span v-else class="text-gray-400">-</span>
+                </td>
+                <td class="p-4">
+                  <span v-if="window.capacity && window.capacity.disks[index]">
+                    {{ formatBytes(window.capacity.disks[index].total - window.capacity.disks[index].free) }}
+                  </span>
+                  <span v-else class="text-gray-400">-</span>
+                </td>
+                <td class="p-4">
+                  <span v-if="window.capacity && window.capacity.disks[index]">
+                    {{ formatBytes(window.capacity.disks[index].free) }}
+                  </span>
+                  <span v-else class="text-gray-400">-</span>
+                </td>
+                <td class="p-4">
+                  <div v-if="window.capacity && window.capacity.disks[index]">
+                    <div class="text-sm font-semibold mb-1"
+                         :class="((window.capacity.disks[index].total - window.capacity.disks[index].free) / window.capacity.disks[index].total * 100) > 80 ? 'text-red-600' : 'text-gray-700'">
+                      {{ (((window.capacity.disks[index].total - window.capacity.disks[index].free) / window.capacity.disks[index].total) * 100).toFixed(1) }}%
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2">
+                      <div class="h-2 rounded-full"
+                           :class="((window.capacity.disks[index].total - window.capacity.disks[index].free) / window.capacity.disks[index].total * 100) > 80 ? 'bg-red-500' : 'bg-blue-500'"
+                           :style="{ width: ((window.capacity.disks[index].total - window.capacity.disks[index].free) / window.capacity.disks[index].total * 100) + '%' }">
+                      </div>
+                    </div>
+                  </div>
+                  <span v-else class="text-gray-400">-</span>
+                </td>
+                <td class="p-4">
+                  <span class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
+                    正常
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 恢复标签页 -->
+  <div v-else-if="window.currentTab === 'recovery'" class="flex-1 overflow-auto p-6">
+    <div v-if="!window.ecConfig" class="flex items-center justify-center h-full">
+      <div class="text-center">
+        <div class="text-6xl mb-4">⚠️</div>
+        <div class="text-xl font-semibold text-gray-700 mb-2">未配置纠删码</div>
+        <div class="text-gray-600 mb-6">请先在"配置"标签页配置纠删码</div>
+        <button @click="window.currentTab = 'config'"
+                class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+          前往配置
+        </button>
+      </div>
+    </div>
+
+    <div v-else class="max-w-3xl mx-auto">
+      <div class="bg-white rounded-lg shadow p-8 border text-center">
+        <div class="text-6xl mb-4">🔧</div>
+        <h3 class="text-2xl font-bold mb-2">数据恢复功能</h3>
+        <p class="text-gray-600 mb-6">
+          当检测到磁盘损坏或数据丢失时,可以使用纠删码恢复功能重建数据
+        </p>
+
+        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6 text-left">
+          <div class="flex items-start gap-3">
+            <span class="text-2xl">⚠️</span>
+            <div class="flex-1">
+              <div class="font-semibold text-yellow-900 mb-1">恢复说明</div>
+              <div class="text-sm text-yellow-800">
+                • 最多可恢复 {{ window.ecConfig.m }} 个磁盘的数据<br>
+                • 恢复过程会读取所有健康磁盘的数据<br>
+                • 建议在系统负载较低时进行恢复操作
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <button class="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-semibold">
+          开始检测损坏数据
+        </button>
+
+        <div class="mt-6 text-sm text-gray-500">
+          恢复功能开发中,敬请期待...
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 
