@@ -17,15 +17,23 @@ FRONTEND_DIR = os.path.join(BASE_DIR, 'frontend')
 app = Flask(__name__,
             static_folder=FRONTEND_DIR,  # ✅ 指向 frontend 文件夹
             static_url_path='')  # ✅ 静态文件路径为根路径
-CORS(app, supports_credentials=True)  # ← 修改这里,支持凭证
+CORS(app,
+     supports_credentials=True,
+     origins=['http://127.0.0.1:8080', 'http://localhost:8080',
+              'http://127.0.0.1:5000', 'http://localhost:5000'],
+     allow_headers=['Content-Type', 'Authorization'],
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 app.secret_key = 'your-secret-key-change-this-in-production'  # ← 添加密钥
 
 
 # ✅✅✅ 添加这 4 行 ✅✅✅
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['SESSION_COOKIE_SECURE'] = False  # 开发环境用 False
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)  # 7天有效期
+app.config['SESSION_COOKIE_SECURE'] = False
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
+app.config['SESSION_COOKIE_PATH'] = '/'
+app.config['SESSION_COOKIE_DOMAIN'] = None
+app.config['SESSION_COOKIE_NAME'] = 'nas_session'  # 添加这行,使用自定义名称
 # ✅✅✅ 添加结束 ✅✅✅
 
 # nascenter/backend/app.py
@@ -51,12 +59,18 @@ def admin_required(f):
         # 3. 权限足够,执行函数
         return f(*args, **kwargs)
     return decorated_function
+
+
 def login_required(f):
     """要求登录的装饰器"""
     from functools import wraps
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # 添加调试信息
+        print(f"🔍 检查登录: session.user_id = {session.get('user_id')}")
+
         if 'user_id' not in session:
+            print(f"❌ 未登录,Session内容: {dict(session)}")
             return jsonify({"error": "未登录,请先登录"}), 401
         return f(*args, **kwargs)
 
@@ -303,7 +317,7 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS disks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            node_id INTEGER,
+            node_id TEXT,
             mount TEXT,
             status TEXT,
             capacity_gb REAL,
@@ -480,28 +494,26 @@ def login():
 
     # 验证密码
     if user and user['password_hash'] == password:
-        # ✅ 添加这一行!
+        # ✅ 设置永久 session (使用 7 天有效期)
         session.permanent = True
+
         # 登录成功,保存到 session
         session['user_id'] = user['id']
         session['username'] = user['username']
         session['role'] = user['role']
-        # ✅ 正确
+
+        # 设置文件权限
         if user['role'] == 'admin':
             # 1. 管理员, 始终授予 'fullcontrol'
             session['file_permission'] = 'fullcontrol'
-
         elif user['file_permission']:
             # 2. 非管理员, 且数据库中已有权限, 则使用数据库中的权限
             session['file_permission'] = user['file_permission']
-
         else:
             # 3. 非管理员, 且数据库中无权限, 则根据角色设置默认权限
             if user['role'] == 'user':
-                # 3a. 'user' 角色默认 'readwrite' (您的新要求)
                 session['file_permission'] = 'readwrite'
             else:
-                # 3b. 其他角色 (如 'guest' 等) 默认 'readonly'
                 session['file_permission'] = 'readonly'
 
         # 更新最后登录时间
@@ -511,6 +523,7 @@ def login():
                        (datetime.now().isoformat(), user['id']))
         conn.commit()
         conn.close()
+        print(f"✅ 登录成功: {username}, Session ID: {session.get('user_id')}")
 
         return jsonify({
             "success": True,
@@ -524,7 +537,6 @@ def login():
         })
     else:
         return jsonify({"success": False, "message": "用户名或密码错误"}), 401
-
 
 @app.route('/api/logout', methods=['POST'])
 def logout():
@@ -1277,6 +1289,7 @@ def change_disk_password():
 def encrypt_disk():
     """
     为指定节点的磁盘启用加密（管理端转发调用客户端）
+
     前端请求示例:
     {
         "node_id": "node-5",
@@ -1313,10 +1326,11 @@ def encrypt_disk():
 
     # ---------------- 发起请求 ----------------
     try:
+        # ✅ 管理端发起调用，交给客户端执行实际文件加密
         payload = {"drive": mount, "password": password}
         headers = {"X-NAS-Secret": NAS_SHARED_SECRET}
 
-        res = requests.post(node_url, json=payload, headers=headers, timeout=20)
+        res = requests.post(node_url, json=payload, headers=headers, timeout=300)
 
         # ---------------- 节点响应成功 ----------------
         if res.status_code == 200:
@@ -1337,26 +1351,46 @@ def encrypt_disk():
                 conn.close()
 
                 print(f"[管理端] 节点 {node_id} 磁盘 {mount} 加密成功 ✅")
-                return jsonify({"success": True, "message": result.get("message", "加密成功")})
+                print(f"  总文件数: {result.get('details', {}).get('total', '?')}, "
+                      f"成功: {result.get('details', {}).get('success', '?')}, "
+                      f"失败: {result.get('details', {}).get('failed', '?')}")
+
+                return jsonify({
+                    "success": True,
+                    "message": result.get("message", "磁盘加密完成"),
+                    "details": result.get("details", {})
+                })
 
             else:
                 print(f"[管理端] 节点执行失败: {result.get('error')}")
-                return jsonify({"success": False, "error": result.get("error", "节点执行失败")}), 500
+                return jsonify({
+                    "success": False,
+                    "error": result.get("error", "节点执行失败")
+                }), 500
 
         # ---------------- 节点HTTP错误 ----------------
         else:
             print(f"[管理端] 节点返回异常状态: {res.status_code}, 内容: {res.text}")
-            return jsonify({"success": False, "error": f"节点HTTP错误: {res.text}"}), 500
+            return jsonify({
+                "success": False,
+                "error": f"节点HTTP错误: {res.text}"
+            }), 500
 
     # ---------------- 网络异常 ----------------
     except requests.exceptions.RequestException as e:
         print(f"[管理端] 无法连接节点 {node_id}: {e}")
-        return jsonify({"success": False, "error": f"无法连接节点 {node_ip}:{node_port}"}), 500
+        return jsonify({
+            "success": False,
+            "error": f"无法连接节点 {node_ip}:{node_port}"
+        }), 500
 
     # ---------------- 其他异常 ----------------
     except Exception as e:
         print(f"[管理端] 启用加密异常: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 
 @app.route('/api/encryption/disk/unlock', methods=['POST'])

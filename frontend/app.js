@@ -1,5 +1,12 @@
 // 配置 axios 默认设置
 axios.defaults.withCredentials = true;
+axios.defaults.baseURL = '';
+axios.interceptors.request.use(config => {
+    config.withCredentials = true;
+    return config;
+}, error => {
+    return Promise.reject(error);
+});
 const { createApp } = Vue;
 createApp({
     data() {
@@ -168,45 +175,46 @@ createApp({
 
 
         async accessNode(node) {
-            if (node.status === 'offline') {
-                alert(`节点 ${node.name} 当前离线,无法访问`);
-                return;
+    if (node.status === 'offline') {
+        alert(`节点 ${node.name} 当前离线,无法访问`);
+        return;
+    }
+
+    try {
+        // 1. 向管理端请求生成访问令牌
+        const response = await axios.post(`${this.apiBaseUrl}/api/generate-node-access-token`, {
+            node_id: node.id
+        }, {
+            withCredentials: true  // 确保发送 Cookie
+        });
+
+        if (response.data.success) {
+            const token = response.data.token;
+
+            // 2. 构建客户端访问 URL (携带 token)
+            const clientUrl = `http://${node.ip}:${node.port}/desktop?token=${token}`;
+
+            // 3. 在新标签页打开客户端
+            const confirmed = confirm(
+                `🔐 即将访问节点\n\n` +
+                `节点名称: ${node.name}\n` +
+                `访问地址: http://${node.ip}:${node.port}\n` +
+                `您的权限: ${response.data.file_permission || '只读'}\n\n` +
+                `⏰ 访问令牌有效期: 1 小时\n\n` +
+                `是否继续?`
+            );
+
+            if (confirmed) {
+                window.open(clientUrl, '_blank');
             }
-
-            try {
-                // 🔥 1. 向管理端请求生成访问令牌
-                const response = await axios.post(`${this.apiBaseUrl}/api/generate-node-access-token`, {
-                    node_id: node.id
-                });
-
-                if (response.data.success) {
-                    const token = response.data.token;
-
-                    // 🔥 2. 构建客户端访问 URL (携带 token)
-                    // ⚠️ 修正:需要添加 /desktop 路径
-                    const clientUrl = `http://${node.ip}:${node.port}/desktop?token=${token}`;
-
-                    // 🔥 3. 在新标签页打开客户端
-                    const confirmed = confirm(
-                        `🔐 即将访问节点\n\n` +
-                        `节点名称: ${node.name}\n` +
-                        `访问地址: http://${node.ip}:${node.port}\n` +
-                        `您的权限: ${response.data.file_permission || '只读'}\n\n` +
-                        `⏰ 访问令牌有效期: 1 小时\n\n` +
-                        `是否继续?`
-                    );
-
-                    if (confirmed) {
-                        window.open(clientUrl, '_blank');
-                    }
-                } else {
-                    alert(`❌ 生成访问令牌失败: ${response.data.error}`);
-                }
-            } catch (error) {
-                console.error('生成访问令牌失败:', error);
-                alert('❌ 生成访问令牌失败: ' + (error.response?.data?.error || error.message));
-            }
-        },
+        } else {
+            alert(`❌ 生成访问令牌失败: ${response.data.error}`);
+        }
+    } catch (error) {
+        console.error('生成访问令牌失败:', error);
+        alert('❌ 生成访问令牌失败: ' + (error.response?.data?.error || error.message));
+    }
+},
 
         async viewNodeDisks(window, node) {
             if (node.status === 'offline') {
@@ -903,39 +911,28 @@ async lockDisk(window, nodeId, mount) {
 },
 
 async decryptDisk(window, nodeId, mount) {
-  if (!confirm("⚠️ 确认要永久解密此磁盘吗？解密后数据将不再受加密保护！")) return;
+  // 1. 先提示用户输入密码
+  const password = prompt("⚠️ 请输入加密密码以永久解密此磁盘:\n\n解密后数据将不再受加密保护！");
+  if (!password) return;  // 用户取消
+
+  // 2. 确认操作
+  if (!confirm(`确认要使用密码永久解密磁盘 ${mount} 吗？\n\n此操作不可逆！`)) return;
+
   try {
     const res = await axios.post(`${this.apiBaseUrl}/api/encryption/disk/decrypt`, {
       node_id: nodeId,
-      mount: mount
+      mount: mount,
+      password: password  // ✅ 现在有定义了
     });
     if (res.data.success) {
-      alert('磁盘已永久解密');
+      alert('✅ 磁盘已永久解密');
       await this.loadEncryptionDisks(window);
     } else {
-      alert(res.data.error || '解密失败');
+      alert('❌ ' + (res.data.error || '解密失败'));
     }
   } catch (error) {
-    alert('请求失败');
-  }
-},
-
-async changePassword(window, nodeId, mount) {
-  const newPassword = prompt("请输入新密码：");
-  if (!newPassword) return;
-  try {
-    const res = await axios.post(`${this.apiBaseUrl}/api/encryption/disk/change-password`, {
-      node_id: nodeId,
-      mount: mount,
-      new_password: newPassword
-    });
-    if (res.data.success) {
-      alert('密码已修改');
-    } else {
-      alert(res.data.error || '修改失败');
-    }
-  } catch (error) {
-    alert('请求失败');
+    console.error('解密请求失败:', error);
+    alert('❌ 请求失败: ' + (error.response?.data?.error || error.message));
   }
 },
 
