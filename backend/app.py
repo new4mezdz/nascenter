@@ -7,7 +7,7 @@ import sqlite3, json, time
 from config import NAS_SHARED_SECRET
 import subprocess
 from pathlib import Path
-
+from flask import g
 NGROK_PATH = Path(__file__).with_name('ngrok.exe')
 ngrok_url_global = None
 FLASK_PORT = 8080
@@ -52,7 +52,22 @@ NODES_CONFIG_FILE = 'nodes_config.json'
 # 存储活跃节点信息(内存中)
 ACTIVE_NODES = {}  # {node_id: {name, ip, port, stats, last_heartbeat}}
 
+DATABASE = 'nas_center.db'
 
+def get_db():
+    """获取数据库连接"""
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE)
+        db.row_factory = sqlite3.Row  # 让查询结果可以通过列名访问
+    return db
+
+@app.teardown_appcontext
+def close_connection(exception):
+    """请求结束时关闭数据库连接"""
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
 @app.route('/api/node-register', methods=['POST'])
 def node_register():
     """接收节点注册/心跳"""
@@ -83,82 +98,104 @@ def node_register():
 
 @app.route('/api/nodes', methods=['GET'])
 def get_all_nodes():
-    """获取所有节点 - 优先从内存读取,兜底从配置文件"""
-    nodes = []
-    now = datetime.now()
-
-    # 1. 从内存中读取活跃节点(已注册的)
-    for node_id, node_info in ACTIVE_NODES.items():
-        last_heartbeat = datetime.fromisoformat(node_info['last_heartbeat'])
-
-        # 超过2分钟没心跳,标记为离线
-        if (now - last_heartbeat).total_seconds() > 120:
-            node_info['status'] = 'offline'
-
-        # 合并统计信息
-        stats = node_info.get('stats', {})
-        nodes.append({
-            'id': node_info['id'],
-            'name': node_info['name'],
-            'ip': node_info['ip'],
-            'port': node_info['port'],
-            'status': node_info['status'],
-            'cpu_usage': stats.get('cpu_percent', 0),
-            'memory_usage': stats.get('memory_percent', 0),
-            'disk_usage': stats.get('disk_percent', 0),
-            'total_storage': stats.get('disk_total_gb', 0),
-            'used_storage': stats.get('disk_used_gb', 0),
-            'cpu_temp': stats.get('cpu_temp_celsius', 0),
-            'last_updated': node_info['last_heartbeat']
-        })
-
-    # 2. 如果内存中没有节点,从配置文件读取(兜底)
-    if not nodes:
-        for node_config in NODES_CONFIG:
-            # 尝试获取节点信息
-            try:
-                node_data = fetch_node_data(node_config, timeout=3)
-                nodes.append(node_data)
-            except:
-                # 如果获取失败,标记为离线
-                nodes.append({
-                    'id': node_config['id'],
-                    'name': node_config.get('name', '未命名节点'),
-                    'ip': node_config['ip'],
-                    'port': node_config['port'],
-                    'status': 'offline',
-                    'cpu_usage': 0,
-                    'memory_usage': 0,
-                    'disk_usage': 0,
-                    'total_storage': 0,
-                    'used_storage': 0,
-                    'cpu_temp': 0,
-                    'last_updated': now.isoformat()
-                })
-
-    return jsonify(nodes)
-def load_nodes_config():
+    """获取所有节点 - 从数据库读取"""
     try:
-        with open(NODES_CONFIG_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        # 默认配置
-        default_config = [
+        db = get_db()
+        cursor = db.cursor()
+
+        cursor.execute('''
+            SELECT node_id, ip, port, status, last_seen, created_at
+            FROM nodes
+            ORDER BY created_at DESC
+        ''')
+
+        nodes = []
+
+        for row in cursor.fetchall():
+            node_id = row['node_id']
+            status = row['status']
+
+            # ✅ 节点身份信息直接从数据库读取
+            # 不需要调用 /api/node-info,因为数据库已经有了
+
+            # 获取磁盘总容量(从数据库)
+            cursor.execute('''
+                SELECT SUM(capacity_gb) as total_storage
+                FROM node_disks
+                WHERE node_id = ?
+            ''', (node_id,))
+            disk_row = cursor.fetchone()
+            total_storage = disk_row['total_storage'] if disk_row['total_storage'] else 0
+
+            # ✅ 监控数据从 /api/system-stats 获取
+            cpu_usage = 0
+            memory_usage = 0
+            disk_usage = 0
+            used_storage = 0
+            cpu_temp = 0
+
+            if status == 'online':
+                try:
+                    stats_url = f"http://{row['ip']}:{row['port']}/api/system-stats"
+                    stats_response = requests.get(stats_url, timeout=2)
+                    if stats_response.status_code == 200:
+                        stats = stats_response.json()
+                        cpu_usage = stats.get('cpu_percent', 0)
+                        memory_usage = stats.get('memory_percent', 0)
+                        disk_usage = stats.get('disk_percent', 0)
+                        used_storage = stats.get('disk_used_gb', 0)
+                        cpu_temp = stats.get('cpu_temp_celsius', 0)
+                except Exception as e:
+                    print(f"[DEBUG] 获取节点 {node_id} 监控数据失败: {e}")
+
+            nodes.append({
+                'id': node_id,
+                'name': node_id,
+                'ip': row['ip'],
+                'port': row['port'],
+                'status': status,
+                'cpu_usage': cpu_usage,
+                'memory_usage': memory_usage,
+                'disk_usage': disk_usage,
+                'total_storage': total_storage,
+                'used_storage': used_storage,
+                'cpu_temp': cpu_temp,
+                'last_updated': row['last_seen'] or row['created_at']
+            })
+
+        return jsonify(nodes)
+
+    except Exception as e:
+        print(f"[获取节点列表失败] {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify([]), 500
+
+def load_nodes_config():
+    """从数据库加载节点配置"""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute('SELECT node_id, ip, port, status FROM nodes')
+        nodes = cursor.fetchall()
+
+        return [
             {
-                "id": "node-5",
-                "name": "我的本地节点",
-                "ip": "127.0.0.1",
-                "port": 5000,
-                "type": "local"
+                "id": node['node_id'],
+                "name": node['node_id'],  # 可以后续添加 name 字段
+                "ip": node['ip'],
+                "port": node['port'],
+                "type": "remote",
+                "status": node['status']
             }
+            for node in nodes
         ]
-        save_nodes_config(default_config)
-        return default_config
-
+    except Exception as e:
+        print(f"加载节点配置失败: {e}")
+        return []
 def save_nodes_config(config):
-    with open(NODES_CONFIG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(config, f, ensure_ascii=False, indent=2)
-
+    """不再需要保存到文件,数据已经在数据库中"""
+    pass
 # 加载节点配置
 NODES_CONFIG = load_nodes_config()
 def admin_required(f):
@@ -193,7 +230,25 @@ def login_required(f):
 
 
 # ========== [新增] 分享代理路由 ==========
+@app.route('/api/internal/test-connection', methods=['POST'])
+def test_connection():
+    """测试连接接口 - 供客户端配置向导使用"""
+    try:
+        data = request.json
+        shared_secret = data.get('shared_secret')
 
+        # 验证共享密钥
+        if shared_secret != NAS_SHARED_SECRET:
+            return jsonify({'success': False, 'error': '共享密钥不正确'}), 401
+
+        return jsonify({
+            'success': True,
+            'message': '连接成功',
+            'server_time': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 @app.route('/share/<node_id>/<local_token>', methods=['GET', 'POST'])
 def proxy_share_request(node_id, local_token):
     """
@@ -470,7 +525,7 @@ def initialize_node():
         return jsonify({"success": False, "error": "缺少node_id"}), 400
 
     # 在 NODES_CONFIG 中查找节点
-    node = next((n for n in NODES_CONFIG if n["id"] == node_id), None)
+    node = get_node_from_db(node_id)
     if not node:
         return jsonify({"success": False, "error": "节点不存在"}), 404
 
@@ -1073,12 +1128,17 @@ def update_user_node_access(user_id):
 @app.route('/api/nodes/<node_id>/monitor-stats', methods=['GET'])
 def get_node_monitor_stats(node_id):
     """获取单个节点的完整系统监控数据"""
-    node_config = next((config for config in NODES_CONFIG if config['id'] == node_id), None)
-    if not node_config:
-        return jsonify({"error": "节点不存在"}), 404
-
     try:
-        base_url = f"http://{node_config['ip']}:{node_config['port']}"
+        # ✅ 从数据库获取节点信息
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute('SELECT ip, port FROM nodes WHERE node_id = ?', (node_id,))
+        node = cursor.fetchone()
+
+        if not node:
+            return jsonify({"error": "节点不存在"}), 404
+
+        base_url = f"http://{node['ip']}:{node['port']}"
 
         print(f"[DEBUG] 正在请求节点: {base_url}")
 
@@ -1098,7 +1158,6 @@ def get_node_monitor_stats(node_id):
             print(f"[DEBUG] hw_data keys: {hw_data.keys()}")
 
             # 合并数据
-            # 合并数据 - 优先使用 sys_data 的值,因为客户端已经处理好了
             result = {
                 'temperatures': hw_data.get('temperatures', []),
                 'fans': hw_data.get('fans', []),
@@ -1110,39 +1169,34 @@ def get_node_monitor_stats(node_id):
                 'disk_total_gb': sys_data.get('disk_total_gb', 0),
                 'disk_used_gb': sys_data.get('disk_used_gb', 0),
                 'cpu_temp_celsius': sys_data.get('cpu_temp_celsius', 0),
-                'cpu_freq': sys_data.get('cpu_freq', 0),  # 从 sys_data 获取
-                'cpu_power': sys_data.get('cpu_power', 0),  # 从 sys_data 获取
-                'network_download': sys_data.get('network_download', 0),  # 从 sys_data 获取
-                'network_upload': sys_data.get('network_upload', 0)  # 从 sys_data 获取
+                'cpu_freq': sys_data.get('cpu_freq', 0),
+                'cpu_power': sys_data.get('cpu_power', 0),
+                'network_download': sys_data.get('network_download', 0),
+                'network_upload': sys_data.get('network_upload', 0)
             }
 
             print(f"[DEBUG] 返回结果: {result}")
 
             return jsonify(result)
         else:
-            # 如果节点返回了错误（比如500），我们解析它的错误信息并返回给前端
-            error_details = response.json().get('error', '未知节点错误')
-            return jsonify({
-                "error": f"从节点获取监控数据失败: {error_details} (状态码: {response.status_code})"
-            }), 500
+            error_details = sys_response.json().get('error',
+                                                    '未知节点错误') if sys_response.status_code != 200 else '节点无响应'
+            return jsonify({"error": f"节点返回错误: {error_details}"}), 500
 
-    except requests.exceptions.RequestException as e:
-        # 捕获所有 requests 相关的异常 (如连接超时, 无法解析主机等)
-        print(f"[ERROR] 请求节点 {node_config['name']} 失败: {e}")
-        return jsonify({
-            "error": f"请求节点失败，请确保节点客户端正在运行且网络通畅。错误: {str(e)}"
-        }), 500
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "节点连接超时"}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({"error": "无法连接到节点"}), 503
     except Exception as e:
-        # 捕获其他所有可能的未知错误
-        print(f"[ERROR] 处理节点 {node_config['name']} 数据时发生未知错误: {e}")
-        return jsonify({
-            "error": f"处理节点数据时发生未知错误: {str(e)}"
-        }), 500
+        print(f"[ERROR] 获取节点监控数据失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 @app.route('/api/nodes/<node_id>', methods=['GET'])
 def get_node(node_id):
     """获取指定 NAS 节点的真实数据"""
     node_config = None
-    for config in NODES_CONFIG:
+    for config in get_all_nodes_from_db():
         if config['id'] == node_id:
             node_config = config
             break
@@ -1158,7 +1212,7 @@ def get_node(node_id):
 def refresh_node(node_id):
     """刷新节点数据(获取最新数据)"""
     node_config = None
-    for config in NODES_CONFIG:
+    for config in get_all_nodes_from_db():
         if config['id'] == node_id:
             node_config = config
             break
@@ -1300,41 +1354,58 @@ def list_encrypted_disks():
         print(f"[管理端] 获取磁盘列表失败: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+
 @app.route('/api/nodes/update-disks', methods=['POST'])
 def update_node_disks():
-    """节点上报磁盘信息接口"""
-    data = request.json
-    node_id = data.get('node_id')
-    disks = data.get('disks', [])
+    """更新节点磁盘信息"""
+    try:
+        # 验证共享密钥
+        if request.headers.get('X-NAS-Secret') != NAS_SHARED_SECRET:
+            return jsonify({'success': False, 'error': '认证失败'}), 401
 
-    if not node_id or not disks:
-        return jsonify({"success": False, "error": "缺少参数"}), 400
+        data = request.json
+        node_id = data.get('node_id')
+        disks = data.get('disks', [])
 
-    conn = sqlite3.connect('nas_center.db')
-    cursor = conn.cursor()
+        if not node_id:
+            return jsonify({'success': False, 'error': '缺少节点ID'}), 400
 
-    # 删除旧记录
-    cursor.execute('DELETE FROM disks WHERE node_id = ?', (node_id,))
+        db = get_db()
+        cursor = db.cursor()
 
-    # 插入新数据
-    for d in disks:
+        # 更新节点最后上报时间
         cursor.execute('''
-            INSERT INTO disks (node_id, mount, status, capacity_gb, is_encrypted, is_locked)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (
-            node_id,
-            d.get('mount'),
-            d.get('status', 'online'),
-            d.get('capacity_gb', 0),
-            d.get('is_encrypted', 0),
-            d.get('is_locked', 0)
-        ))
+            UPDATE nodes 
+            SET last_seen = CURRENT_TIMESTAMP, status = 'online'
+            WHERE node_id = ?
+        ''', (node_id,))
 
-    conn.commit()
-    conn.close()
-    return jsonify({"success": True, "count": len(disks)})
-# ===============================================================
-# 🔒 锁定磁盘
+        # 删除旧的磁盘信息
+        cursor.execute('DELETE FROM node_disks WHERE node_id = ?', (node_id,))
+
+        # 插入新的磁盘信息
+        for disk in disks:
+            cursor.execute('''
+                INSERT INTO node_disks 
+                (node_id, mount, capacity_gb, status, is_encrypted, is_locked)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                node_id,
+                disk.get('mount'),
+                disk.get('capacity_gb'),
+                disk.get('status', 'online'),
+                disk.get('is_encrypted', 0),
+                disk.get('is_locked', 0)
+            ))
+
+        db.commit()
+        print(f"[磁盘更新] {node_id}: {len(disks)} 个磁盘")
+
+        return jsonify({'success': True, 'message': '更新成功'})
+
+    except Exception as e:
+        print(f"[磁盘更新失败] {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 # ===============================================================
 @app.route('/api/encryption/disk/lock', methods=['POST'])
 @login_required
@@ -1347,7 +1418,7 @@ def lock_disk():
     if not (node_id and mount):
         return jsonify({"success": False, "error": "参数不完整"}), 400
 
-    node = next((n for n in NODES_CONFIG if n["id"] == node_id), None)
+    node = get_node_from_db(node_id)
     if not node:
         return jsonify({"success": False, "error": "节点不存在"}), 404
 
@@ -1390,7 +1461,7 @@ def decrypt_disk():
     if not (node_id and mount and password):
         return jsonify({"success": False, "error": "参数不完整"}), 400
 
-    node = next((n for n in NODES_CONFIG if n["id"] == node_id), None)
+    node = get_node_from_db(node_id)
     if not node:
         return jsonify({"success": False, "error": "节点不存在"}), 404
 
@@ -1430,7 +1501,7 @@ def change_disk_password():
     if not (node_id and mount and new_pw):
         return jsonify({"success": False, "error": "参数不完整"}), 400
 
-    node = next((n for n in NODES_CONFIG if n["id"] == node_id), None)
+    node = get_node_from_db(node_id)
     if not node:
         return jsonify({"success": False, "error": "节点不存在"}), 404
 
@@ -1680,33 +1751,56 @@ def get_user_permission():
 # ========== [新增] 代理到客户端的请求 ==========
 @app.route('/api/nodes/register', methods=['POST'])
 def register_node():
-    data = request.json
-    ip = data.get('ip')
-    port = data.get('port')
+    """客户端节点注册"""
+    try:
+        # 验证共享密钥
+        if request.headers.get('X-NAS-Secret') != NAS_SHARED_SECRET:
+            return jsonify({'success': False, 'error': '认证失败'}), 401
 
-    if not ip or not port:
-        return jsonify({'error': '缺少参数'}), 400
+        data = request.json
+        node_id = data.get('node_id')
+        ip = data.get('ip')
+        port = data.get('port')
 
-    # ✅ 检查是否已存在同一IP+端口的节点
-    for n in NODES_CONFIG:
-        if n["ip"] == ip and n["port"] == port:
-            print(f"[主控] 节点已存在: {ip}:{port} -> {n['id']}")
-            return jsonify({"success": True, "node_id": n["id"]})
+        if not node_id:
+            return jsonify({'success': False, 'error': '缺少节点ID'}), 400
 
-    # 否则新建节点
-    node_id = f"node-{len(NODES_CONFIG)+1}"
-    node_info = {
-        "id": node_id,
-        "name": f"NAS-节点-{node_id}",
-        "ip": ip,
-        "port": port,
-        "type": "remote",
-        "status": "online"
-    }
-    NODES_CONFIG.append(node_info)
-    print(f"[主控] 已注册新节点: {node_id} ({ip}:{port})")
-    return jsonify({"success": True, "node_id": node_id})
+        db = get_db()
+        cursor = db.cursor()
 
+        # 检查节点是否已存在
+        cursor.execute('SELECT * FROM nodes WHERE node_id = ?', (node_id,))
+        existing = cursor.fetchone()
+
+        if existing:
+            # 更新现有节点
+            cursor.execute('''
+                UPDATE nodes 
+                SET ip = ?, port = ?, status = 'online', last_seen = CURRENT_TIMESTAMP
+                WHERE node_id = ?
+            ''', (ip, port, node_id))
+            print(f"[节点更新] {node_id} - {ip}:{port}")
+        else:
+            # 新增节点
+            cursor.execute('''
+                INSERT INTO nodes (node_id, ip, port, status)
+                VALUES (?, ?, ?, 'online')
+            ''', (node_id, ip, port))
+            print(f"[节点注册] {node_id} - {ip}:{port}")
+
+        db.commit()
+
+        return jsonify({
+            'success': True,
+            'node_id': node_id,
+            'message': '注册成功'
+        })
+
+    except Exception as e:
+        print(f"[节点注册失败] {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/nodes/<node_id>/proxy/<path:api_path>', methods=['GET', 'POST', 'PUT', 'DELETE'])
 @login_required
@@ -1860,45 +1954,54 @@ def access_rejected():
         "success": True,
         "message": "已接收拒绝通知"
     })
+
+
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
-    """获取整体统计信息(基于真实节点数据)"""
-    all_nodes = []
+    """获取系统统计信息 - 从数据库读取"""
+    try:
+        db = get_db()
+        cursor = db.cursor()
 
-    for node_config in NODES_CONFIG:
-        node_data = fetch_node_data(node_config)
-        all_nodes.append(node_data)
+        # 统计节点总数
+        cursor.execute('SELECT COUNT(*) as total FROM nodes')
+        total_nodes = cursor.fetchone()['total']
 
-    total_nodes = len(all_nodes)
-    online_nodes = sum(1 for node in all_nodes if node['status'] == 'online')
-    offline_nodes = sum(1 for node in all_nodes if node['status'] == 'offline')
-    warning_nodes = sum(1 for node in all_nodes if node['status'] == 'warning')
+        # 统计在线节点(2分钟内有心跳)
+        two_minutes_ago = (datetime.now() - timedelta(minutes=2)).isoformat()
+        cursor.execute('''
+            SELECT COUNT(*) as online 
+            FROM nodes 
+            WHERE last_seen > ?
+        ''', (two_minutes_ago,))
+        online_nodes = cursor.fetchone()['online']
 
-    total_storage = sum(node['total_storage'] for node in all_nodes)
-    used_storage = sum(node['used_storage'] for node in all_nodes)
+        offline_nodes = total_nodes - online_nodes
 
-    online_node_list = [node for node in all_nodes if node['status'] == 'online']
-    avg_cpu = sum(node['cpu_usage'] for node in online_node_list) / max(len(online_node_list), 1)
-    avg_memory = sum(node['memory_usage'] for node in online_node_list) / max(len(online_node_list), 1)
+        # 警告节点(可以根据实际需求定义)
+        warning_nodes = 0
 
-    return jsonify({
-        "total_nodes": total_nodes,
-        "online_nodes": online_nodes,
-        "offline_nodes": offline_nodes,
-        "warning_nodes": warning_nodes,
-        "total_storage_gb": total_storage,
-        "used_storage_gb": used_storage,
-        "storage_usage_percent": round((used_storage / total_storage * 100) if total_storage > 0 else 0, 2),
-        "avg_cpu_usage": round(avg_cpu, 2),
-        "avg_memory_usage": round(avg_memory, 2)
-    })
+        return jsonify({
+            'total_nodes': total_nodes,
+            'online_nodes': online_nodes,
+            'offline_nodes': offline_nodes,
+            'warning_nodes': warning_nodes
+        })
 
+    except Exception as e:
+        print(f"[获取统计信息失败] {e}")
+        return jsonify({
+            'total_nodes': 0,
+            'online_nodes': 0,
+            'offline_nodes': 0,
+            'warning_nodes': 0
+        }), 500
 
 @app.route('/api/nodes/<node_id>/disks', methods=['GET'])
 def get_node_disks(node_id):
     """获取节点的真实磁盘信息"""
     node_config = None
-    for config in NODES_CONFIG:
+    for config in get_all_nodes_from_db():
         if config['id'] == node_id:
             node_config = config
             break
@@ -1988,7 +2091,7 @@ def internal_error(error):
 
 # 辅助函数: 获取节点IP和端口 (使用您已有的 NODES_CONFIG)
 def get_node_config_by_id(node_id):
-    for config in NODES_CONFIG:
+    for config in get_all_nodes_from_db():
         if config['id'] == node_id:
             return config
     return None
@@ -2433,7 +2536,6 @@ if __name__ == '__main__':
         print(f"📄 HTML 文件: {os.path.join(FRONTEND_DIR, '1.html')}")
         print("=" * 50)
         print(f"🌐 前端页面: http://127.0.0.1:{FLASK_PORT}")
-        print(f"📡 API 地址: http://127.0.0.1:{FLASK_PORT}/api")
         print("=" * 50)
         print("📋 配置的节点:")
         for node in NODES_CONFIG:
