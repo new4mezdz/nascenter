@@ -23,6 +23,7 @@
       overflow: hidden;
       width: 100%;
       max-width: 400px;
+      margin: 0 16px;
       animation: slideIn 0.3s ease-out;
     }
 
@@ -69,6 +70,22 @@
 
     @keyframes spin {
       to { transform: rotate(360deg); }
+    }
+
+    /* 手机端适配 */
+    @media (max-width: 640px) {
+      .login-container {
+        margin: 0 16px;
+        max-width: calc(100% - 32px);
+      }
+
+      .login-container h1 {
+        font-size: 1.5rem;
+      }
+
+      .login-container input {
+        font-size: 16px; /* 防止iOS自动缩放 */
+      }
     }
   </style>
 </head>

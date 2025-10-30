@@ -66,21 +66,21 @@ createApp({
         },
 
         createWindow(config) {
-            const win = {
-                id: this.nextWindowId++,
-                x: 100 + (this.windows.length * 30),
-                y: 50 + (this.windows.length * 30),
-                width: config.width || 900,
-                height: config.height || 600,
-                zIndex: this.maxZIndex++,
-                maximized: false,
-                minimized: false,
-                ...config
-            };
-            this.windows.push(win);
-            return win;
-        },
-
+    const isMobile = window.innerWidth <= 768;
+    const win = {
+        id: this.nextWindowId++,
+        x: isMobile ? 0 : 100 + (this.windows.length * 30),
+        y: isMobile ? 0 : 50 + (this.windows.length * 30),
+        width: isMobile ? window.innerWidth : (config.width || 900),
+        height: isMobile ? window.innerHeight - 100 : (config.height || 600),
+        zIndex: this.maxZIndex++,
+        maximized: isMobile, // 手机端默认最大化
+        minimized: false,
+        ...config
+    };
+    this.windows.push(win);
+    return win;
+},
         closeWindow(id) {
             const index = this.windows.findIndex(w => w.id === id);
             if (index !== -1) {
@@ -107,7 +107,7 @@ createApp({
         },
 
         startDrag(event, window) {
-            if (window.maximized) return;
+            if (window.maximized || window.innerWidth <= 768) return; // 添加移动端判断
             this.dragWindow = window;
             this.dragOffset.x = event.clientX - window.x;
             this.dragOffset.y = event.clientY - window.y;
