@@ -209,38 +209,41 @@ async renameNode(window, node) {
         // nascenter/frontend/app.js
 
 
-        async accessNode(node) {
+  async accessNode(node) {
     if (node.status === 'offline') {
         alert(`节点 ${node.name} 当前离线,无法访问`);
         return;
     }
+
+    console.log('[DEBUG] 开始访问节点:', node.id);
 
     try {
         // 1. 向管理端请求生成访问令牌
         const response = await axios.post(`${this.apiBaseUrl}/api/generate-node-access-token`, {
             node_id: node.id
         }, {
-            withCredentials: true  // 确保发送 Cookie
+            withCredentials: true
         });
 
         if (response.data.success) {
             const token = response.data.token;
 
-            // 2. 构建客户端访问 URL (携带 token)
-            const clientUrl = `http://${node.ip}:${node.port}/desktop?token=${token}`;
+            // 2. 👇 关键修改:通过管理端代理访问,而不是直接访问节点内网IP
+            const proxyUrl = `${this.apiBaseUrl}/proxy/node/${node.id}/desktop?token=${token}`;
 
-            // 3. 在新标签页打开客户端
-            const confirmed = confirm(
-                `🔐 即将访问节点\n\n` +
-                `节点名称: ${node.name}\n` +
-                `访问地址: http://${node.ip}:${node.port}\n` +
-                `您的权限: ${response.data.file_permission || '只读'}\n\n` +
-                `⏰ 访问令牌有效期: 1 小时\n\n` +
-                `是否继续?`
-            );
+            console.log('[DEBUG] 代理访问URL:', proxyUrl);
 
-            if (confirmed) {
-                window.open(clientUrl, '_blank');
+            // 3. 检测设备类型
+            const isMobile = window.innerWidth <= 768;
+
+            // 4. 直接跳转
+            if (isMobile) {
+                window.location.href = proxyUrl;
+            } else {
+                const newWindow = window.open(proxyUrl, '_blank');
+                if (!newWindow) {
+                    alert('请允许浏览器弹窗,或点击地址栏的弹窗拦截图标允许弹窗后重试');
+                }
             }
         } else {
             alert(`❌ 生成访问令牌失败: ${response.data.error}`);
@@ -250,7 +253,6 @@ async renameNode(window, node) {
         alert('❌ 生成访问令牌失败: ' + (error.response?.data?.error || error.message));
     }
 },
-
         async viewNodeDisks(window, node) {
             if (node.status === 'offline') {
                 alert(`节点 ${node.name} 当前离线,无法查看磁盘信息`);

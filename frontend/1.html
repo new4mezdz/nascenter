@@ -277,19 +277,22 @@
 
 
     /* 手机端适配 */
+    /* 手机端适配 */
 @media (max-width: 768px) {
   .window {
     top: 0 !important;
     left: 0 !important;
     width: 100% !important;
-    height: auto !important;
+    height: calc(100vh - 50px) !important;
     bottom: 50px !important;
     border-radius: 0;
     min-width: 100%;
+    display: flex !important;
+    flex-direction: column !important;
   }
 
   .window.maximized {
-    height: auto !important;
+    height: calc(100vh - 50px) !important;
     bottom: 50px !important;
   }
 
@@ -332,40 +335,45 @@
     gap: 16px !important;
   }
 
-/* 所有grid在手机端都改成单列 */
-.grid {
-  grid-template-columns: 1fr !important;
-  gap: 16px !important;
-}
+  /* 所有grid在手机端都改成单列 */
+  .grid {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
 
-/* 但网络带宽内部的2列grid保持不变 */
-.grid.grid-cols-2.gap-4 {
-  grid-template-columns: 1fr 1fr !important;
-}
+  /* 但网络带宽内部的2列grid保持不变 */
+  .grid.grid-cols-2.gap-4 {
+    grid-template-columns: 1fr 1fr !important;
+  }
 
   /* 表格最小宽度，保证可以横向滚动 */
   table {
     min-width: 800px !important;
   }
 
-  /* 窗口内容：只允许纵向滚动 */
+  /* 窗口内容区域可以滚动 */
   .window-content {
     overflow-y: auto !important;
     overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* 系统监控详情页面容器 - 关键修复 */
+  .flex-1.overflow-auto {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* 表格容器横向滚动 */
+  .bg-white.rounded-lg.shadow.border {
+    overflow-x: auto !important;
     -webkit-overflow-scrolling: touch;
   }
 
- /* 禁用所有内部容器的纵向滚动 */
-.flex-1.overflow-auto {
-  overflow-y: visible !important;
-  overflow-x: visible !important;
-}
-
-  /* 或者直接针对包含表格的div */
-  .bg-white.rounded-lg.shadow.border {
-    overflow-x: auto !important;
-    overflow-y: visible !important;
-    -webkit-overflow-scrolling: touch;
+  /* 确保网格容器高度自适应 */
+  .grid {
+    min-height: auto !important;
   }
 
   /* 手机端显示滚动条 */
@@ -396,6 +404,7 @@
     border-radius: 3px;
   }
 
+  /* 给内容区域底部添加额外padding */
   .flex-1.overflow-auto.p-6 {
     padding-bottom: 100px !important;
   }

@@ -249,15 +249,22 @@ def test_connection():
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/share/<node_id>/<local_token>', methods=['GET', 'POST'])
 def proxy_share_request(node_id, local_token):
     """
     [新增] 代理公网分享链接到局域网节点
     捕获 /share/node-5/token_abc123 这样的请求
     """
+    print(f"[DEBUG] 收到分享请求: node_id={node_id}, token={local_token}")  # ✅ 添加
+
     # 1. 查找节点配置
     node_config = get_node_config_by_id(node_id)
+    print(f"[DEBUG] 节点配置: {node_config}")  # ✅ 添加
+
     if not node_config:
+        print(f"[DEBUG] 节点不存在: {node_id}")  # ✅ 添加
         return jsonify({"error": "分享节点不存在"}), 404
 
     # 2. 构建内部节点 URL
@@ -1323,13 +1330,13 @@ def list_encrypted_disks():
         if node_id:
             cursor.execute('''
                 SELECT node_id, mount, status, capacity_gb, is_encrypted, is_locked
-                FROM disks
+                FROM node_disks
                 WHERE node_id = ?
             ''', (node_id,))
         else:
             cursor.execute('''
                 SELECT node_id, mount, status, capacity_gb, is_encrypted, is_locked
-                FROM disks
+                FROM node_disks
             ''')
 
         # 读取结果
@@ -1967,13 +1974,12 @@ def get_stats():
         cursor.execute('SELECT COUNT(*) as total FROM nodes')
         total_nodes = cursor.fetchone()['total']
 
-        # 统计在线节点(2分钟内有心跳)
-        two_minutes_ago = (datetime.now() - timedelta(minutes=2)).isoformat()
+        # 统计在线节点 - 直接统计status='online'的数量
         cursor.execute('''
             SELECT COUNT(*) as online 
             FROM nodes 
-            WHERE last_seen > ?
-        ''', (two_minutes_ago,))
+            WHERE status = 'online'
+        ''')
         online_nodes = cursor.fetchone()['online']
 
         offline_nodes = total_nodes - online_nodes
@@ -1996,7 +2002,6 @@ def get_stats():
             'offline_nodes': 0,
             'warning_nodes': 0
         }), 500
-
 @app.route('/api/nodes/<node_id>/disks', methods=['GET'])
 def get_node_disks(node_id):
     """获取节点的真实磁盘信息"""
@@ -2089,13 +2094,26 @@ def internal_error(error):
 
 # ... (在 internal_error 函数之后) ...
 
-# 辅助函数: 获取节点IP和端口 (使用您已有的 NODES_CONFIG)
 def get_node_config_by_id(node_id):
-    for config in get_all_nodes_from_db():
-        if config['id'] == node_id:
-            return config
-    return None
+    """从数据库获取节点配置"""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute('SELECT node_id, ip, port, status FROM nodes WHERE node_id = ?', (node_id,))
+        row = cursor.fetchone()
 
+        if row:
+            return {
+                'id': row['node_id'],
+                'name': row['node_id'],
+                'ip': row['ip'],
+                'port': row['port'],
+                'status': row['status']
+            }
+        return None
+    except Exception as e:
+        print(f"[ERROR] 获取节点配置失败: {e}")
+        return None
 
 # ========== 文件系统 API (权限网关) ==========
 
@@ -2522,6 +2540,181 @@ def _cleanup_old_ngrok():
     except Exception:
         pass
 
+
+# ========== 新增:代理页面访问路由 ==========
+@app.route('/api/verify-access-token', methods=['POST'])
+def verify_access_token():
+    """验证访问令牌"""
+    try:
+        data = request.json
+        token = data.get('token')
+
+        if not token:
+            return jsonify({'success': False, 'error': '缺少令牌'}), 400
+
+        # 解码JWT
+        payload = jwt.decode(token, ACCESS_TOKEN_SECRET, algorithms=['HS256'])
+
+        # ✅ 判断是否为管理员
+        role = payload.get('role', 'user')
+        is_admin = (role == 'admin')
+
+        # 生成新的长期token
+        new_token = jwt.encode({
+            'user_id': payload['user_id'],
+            'username': payload['username'],
+            'role': role,
+            'file_permission': payload.get('file_permission', 'readonly'),
+            'exp': datetime.utcnow() + timedelta(days=7)
+        }, ACCESS_TOKEN_SECRET, algorithm='HS256')
+
+        return jsonify({
+            'success': True,
+            'user': {
+                'id': payload['user_id'],
+                'username': payload['username'],
+                'role': role,
+                'file_permission': payload.get('file_permission', 'readonly'),
+                'is_admin': is_admin  # ✅ 添加这个字段
+            },
+            'token': new_token
+        })
+
+    except jwt.ExpiredSignatureError:
+        return jsonify({'success': False, 'error': '令牌已过期'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'success': False, 'error': '无效的令牌'}), 401
+    except Exception as e:
+        print(f"[验证令牌失败] {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/share/<node_id>/<token>')
+    def proxy_share(node_id, token):
+        """代理分享链接到节点"""
+        try:
+            # 从数据库获取节点信息
+            db = get_db()
+            cursor = db.cursor()
+            cursor.execute('SELECT ip, port, status FROM nodes WHERE node_id = ?', (node_id,))
+            node = cursor.fetchone()
+
+            if not node:
+                return jsonify({'error': '节点不存在'}), 404
+
+            if node['status'] != 'online':
+                return jsonify({'error': '节点已离线'}), 503
+
+            # 转发到节点的分享接口
+            target_url = f"http://{node['ip']}:{node['port']}/share/{token}"
+
+            # 转发查询参数(如果有密码)
+            if request.query_string:
+                target_url += '?' + request.query_string.decode('utf-8')
+
+            print(f"[分享代理] {target_url}")
+
+            # 转发请求
+            response = requests.get(target_url, timeout=30, stream=True)
+
+            # 过滤响应头
+            excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
+            response_headers = []
+            for key, value in response.headers.items():
+                if key.lower() not in excluded_headers:
+                    response_headers.append((key, value))
+
+            return response.content, response.status_code, response_headers
+
+        except Exception as e:
+            print(f"[分享代理异常] {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': f'访问分享失败: {str(e)}'}), 500
+@app.route('/proxy/node/<node_id>/<path:subpath>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+def proxy_to_node_page(node_id, subpath):  # 👈 改了函数名
+    """
+    代理到客户端节点的页面请求(包括desktop页面和静态资源)
+    用于在外网访问内网节点
+    """
+    try:
+        print(f"[页面代理] {request.method} /proxy/node/{node_id}/{subpath}")
+
+        # 1. 从数据库获取节点信息
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute('SELECT ip, port, status FROM nodes WHERE node_id = ?', (node_id,))
+        node = cursor.fetchone()
+
+        if not node:
+            return jsonify({'error': '节点不存在'}), 404
+
+        if node['status'] != 'online':
+            return jsonify({'error': '节点已离线'}), 503
+
+        # 2. 构建目标URL
+        target_url = f"http://{node['ip']}:{node['port']}/{subpath}"
+
+        # 3. 转发查询参数
+        if request.query_string:
+            target_url += '?' + request.query_string.decode('utf-8')
+
+        print(f"[页面代理转发] {target_url}")
+
+        # 4. 准备请求头(过滤掉一些不需要转发的头)
+        headers = {}
+        excluded_headers = ['host', 'connection', 'content-length', 'content-encoding', 'transfer-encoding']
+        for key, value in request.headers:
+            if key.lower() not in excluded_headers:
+                headers[key] = value
+
+        # 5. 转发请求
+        try:
+            if request.method == 'GET':
+                response = requests.get(target_url, headers=headers, timeout=30, stream=True)
+            elif request.method == 'POST':
+                response = requests.post(target_url,
+                                         headers=headers,
+                                         data=request.get_data(),
+                                         timeout=30,
+                                         stream=True)
+            elif request.method == 'PUT':
+                response = requests.put(target_url,
+                                        headers=headers,
+                                        data=request.get_data(),
+                                        timeout=30,
+                                        stream=True)
+            elif request.method == 'DELETE':
+                response = requests.delete(target_url,
+                                           headers=headers,
+                                           timeout=30,
+                                           stream=True)
+            else:
+                return jsonify({'error': '不支持的请求方法'}), 405
+
+            # 6. 返回响应(过滤响应头)
+            excluded_response_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
+            response_headers = []
+            for key, value in response.headers.items():
+                if key.lower() not in excluded_response_headers:
+                    response_headers.append((key, value))
+
+            print(
+                f"[页面代理响应] 状态码: {response.status_code}, 类型: {response.headers.get('Content-Type', 'unknown')}")
+
+            return response.content, response.status_code, response_headers
+
+        except requests.Timeout:
+            print(f"[页面代理超时] 节点 {node_id} 响应超时")
+            return jsonify({'error': '节点响应超时'}), 504
+        except requests.ConnectionError as e:
+            print(f"[页面代理连接错误] 无法连接到节点 {node_id}: {e}")
+            return jsonify({'error': f'无法连接到节点: {str(e)}'}), 502
+
+    except Exception as e:
+        print(f"[页面代理异常] {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'代理请求失败: {str(e)}'}), 500
 
 if __name__ == '__main__':
     # 初始化数据库
