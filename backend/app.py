@@ -96,80 +96,7 @@ def node_register():
     return jsonify({'success': True, 'message': '注册成功'})
 
 
-@app.route('/api/nodes', methods=['GET'])
-def get_all_nodes():
-    """获取所有节点 - 从数据库读取"""
-    try:
-        db = get_db()
-        cursor = db.cursor()
 
-        cursor.execute('''
-            SELECT node_id, ip, port, status, last_seen, created_at
-            FROM nodes
-            ORDER BY created_at DESC
-        ''')
-
-        nodes = []
-
-        for row in cursor.fetchall():
-            node_id = row['node_id']
-            status = row['status']
-
-            # ✅ 节点身份信息直接从数据库读取
-            # 不需要调用 /api/node-info,因为数据库已经有了
-
-            # 获取磁盘总容量(从数据库)
-            cursor.execute('''
-                SELECT SUM(capacity_gb) as total_storage
-                FROM node_disks
-                WHERE node_id = ?
-            ''', (node_id,))
-            disk_row = cursor.fetchone()
-            total_storage = disk_row['total_storage'] if disk_row['total_storage'] else 0
-
-            # ✅ 监控数据从 /api/system-stats 获取
-            cpu_usage = 0
-            memory_usage = 0
-            disk_usage = 0
-            used_storage = 0
-            cpu_temp = 0
-
-            if status == 'online':
-                try:
-                    stats_url = f"http://{row['ip']}:{row['port']}/api/system-stats"
-                    stats_response = requests.get(stats_url, timeout=2)
-                    if stats_response.status_code == 200:
-                        stats = stats_response.json()
-                        cpu_usage = stats.get('cpu_percent', 0)
-                        memory_usage = stats.get('memory_percent', 0)
-                        disk_usage = stats.get('disk_percent', 0)
-                        used_storage = stats.get('disk_used_gb', 0)
-                        cpu_temp = stats.get('cpu_temp_celsius', 0)
-                except Exception as e:
-                    print(f"[DEBUG] 获取节点 {node_id} 监控数据失败: {e}")
-
-            nodes.append({
-                'id': node_id,
-                'name': node_id,
-                'ip': row['ip'],
-                'port': row['port'],
-                'status': status,
-                'cpu_usage': cpu_usage,
-                'memory_usage': memory_usage,
-                'disk_usage': disk_usage,
-                'total_storage': total_storage,
-                'used_storage': used_storage,
-                'cpu_temp': cpu_temp,
-                'last_updated': row['last_seen'] or row['created_at']
-            })
-
-        return jsonify(nodes)
-
-    except Exception as e:
-        print(f"[获取节点列表失败] {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify([]), 500
 
 def load_nodes_config():
     """从数据库加载节点配置"""
@@ -229,6 +156,215 @@ def login_required(f):
     return decorated_function
 
 
+@app.route('/api/nodes', methods=['GET'])
+@login_required
+def get_all_nodes():
+    """获取所有节点 - 从数据库读取,根据用户权限和节点策略过滤"""
+    try:
+        db = get_db()
+        cursor = db.cursor()
+
+        # 获取当前用户信息
+        user_id = session.get('user_id')
+        role = session.get('role')
+
+        # ========== 第一层：用户节点权限过滤 ==========
+        # 获取用户的节点访问权限
+        cursor.execute('SELECT node_access FROM users WHERE id = ?', (user_id,))
+        user_row = cursor.fetchone()
+
+        # 确定可访问的节点ID列表
+        accessible_node_ids = None  # None表示不过滤(管理员或all权限)
+
+        if role == 'admin':
+            # 管理员可以看到所有节点
+            accessible_node_ids = None
+        elif user_row:
+            node_access = json.loads(user_row['node_access'])
+            access_type = node_access.get('type', 'all')
+
+            if access_type == 'all':
+                accessible_node_ids = None  # 所有节点
+            elif access_type == 'groups':
+                # 按分组访问
+                allowed_groups = node_access.get('allowed_groups', [])
+                if allowed_groups:
+                    placeholders = ','.join('?' * len(allowed_groups))
+                    cursor.execute(f'''
+                        SELECT DISTINCT node_id
+                        FROM node_group_members
+                        WHERE group_id IN ({placeholders})
+                    ''', allowed_groups)
+                    accessible_node_ids = [row['node_id'] for row in cursor.fetchall()]
+                else:
+                    accessible_node_ids = []
+            elif access_type == 'custom':
+                # 自定义节点
+                accessible_node_ids = node_access.get('allowed_nodes', [])
+            else:
+                accessible_node_ids = []
+
+            # 排除明确拒绝的节点
+            denied_nodes = node_access.get('denied_nodes', [])
+            if accessible_node_ids is not None and denied_nodes:
+                accessible_node_ids = [nid for nid in accessible_node_ids if nid not in denied_nodes]
+
+        # 根据权限查询节点
+        if accessible_node_ids is None:
+            # 管理员或有all权限,查询所有节点
+            cursor.execute('''
+                SELECT node_id, ip, port, status, last_seen, created_at
+                FROM nodes
+                ORDER BY created_at DESC
+            ''')
+        elif accessible_node_ids:
+            # 有特定的可访问节点列表
+            placeholders = ','.join('?' * len(accessible_node_ids))
+            cursor.execute(f'''
+                SELECT node_id, ip, port, status, last_seen, created_at
+                FROM nodes
+                WHERE node_id IN ({placeholders})
+                ORDER BY created_at DESC
+            ''', accessible_node_ids)
+        else:
+            # 没有可访问的节点
+            return jsonify([])
+
+        nodes = []
+
+        for row in cursor.fetchall():
+            node_id = row['node_id']
+            status = row['status']
+
+            # ========== 第二层：节点策略过滤 ==========
+            # 查询节点访问策略
+            cursor.execute('SELECT policy FROM node_policies WHERE node_id = ?', (node_id,))
+            policy_row = cursor.fetchone()
+            policy = policy_row['policy'] if policy_row else 'all_users'
+
+            # 策略检查（节点策略优先，管理员有特殊权限）
+            if policy == 'disabled':
+                # 节点已禁用
+                if role == 'admin':
+                    # 管理员可以看到但标记为禁用状态
+                    pass  # 继续处理，后面会添加disabled标记
+                else:
+                    # 非管理员完全看不到
+                    continue
+
+            elif policy == 'admin_only' and role != 'admin':
+                # 仅管理员可访问，非管理员跳过
+                continue
+
+            elif policy == 'whitelist':
+                # 白名单模式：检查用户是否在节点白名单中
+                if role != 'admin':  # 管理员豁免
+                    cursor.execute('''
+                        SELECT 1 FROM node_whitelist 
+                        WHERE node_id = ? AND user_id = ?
+                    ''', (node_id, user_id))
+                    if not cursor.fetchone():
+                        # 不在白名单且不是管理员，跳过
+                        continue
+
+            # ========== 通过所有检查，获取节点详细信息 ==========
+            # 获取磁盘总容量(从数据库)
+            cursor.execute('''
+                SELECT SUM(capacity_gb) as total_storage
+                FROM node_disks
+                WHERE node_id = ?
+            ''', (node_id,))
+            disk_row = cursor.fetchone()
+            total_storage = disk_row['total_storage'] if disk_row['total_storage'] else 0
+
+            # ✅ 监控数据初始化
+            cpu_usage = 0
+            memory_usage = 0
+            disk_usage = 0
+            used_storage = 0
+            cpu_temp = 0
+
+            # ✅ 实时检测节点在线状态 + 获取监控数据(合并为一次请求)
+            if status == 'online':
+                try:
+                    stats_url = f"http://{row['ip']}:{row['port']}/api/system-stats"
+                    stats_response = requests.get(stats_url, timeout=2)
+
+                    if stats_response.status_code == 200:
+                        # 节点在线,获取监控数据
+                        stats = stats_response.json()
+                        cpu_usage = stats.get('cpu_percent', 0)
+                        memory_usage = stats.get('memory_percent', 0)
+                        disk_usage = stats.get('disk_percent', 0)
+                        used_storage = stats.get('disk_used_gb', 0)
+                        cpu_temp = stats.get('cpu_temp_celsius', 0)
+                    else:
+                        # 状态码不是200,标记为离线
+                        status = 'offline'
+                        cursor.execute('UPDATE nodes SET status = ? WHERE node_id = ?', ('offline', node_id))
+                        db.commit()
+
+                except Exception as e:
+                    # 请求失败说明节点离线
+                    print(f"[DEBUG] 节点 {node_id} 离线: {e}")
+                    status = 'offline'
+                    cursor.execute('UPDATE nodes SET status = ? WHERE node_id = ?', ('offline', node_id))
+                    db.commit()
+
+            # 构建节点数据
+            node_data = {
+                'id': node_id,
+                'name': node_id,
+                'ip': row['ip'],
+                'port': row['port'],
+                'status': status,
+                'cpu_usage': cpu_usage,
+                'memory_usage': memory_usage,
+                'disk_usage': disk_usage,
+                'total_storage': total_storage,
+                'used_storage': used_storage,
+                'cpu_temp': cpu_temp,
+                'last_updated': row['last_seen'] or row['created_at'],
+                'policy': policy  # 添加策略信息，方便前端显示
+            }
+
+            # 如果节点被禁用且用户是管理员，添加特殊标记
+            if policy == 'disabled' and role == 'admin':
+                node_data['is_disabled'] = True
+                node_data['status'] = 'disabled'  # 覆盖状态显示
+
+            nodes.append(node_data)
+
+        return jsonify(nodes)
+
+    except Exception as e:
+        print(f"[获取节点列表失败] {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify([]), 500
+
+@app.route('/api/nodes/<node_id>', methods=['GET'])
+def get_node_info(node_id):
+    """获取指定节点的信息"""
+    try:
+        db = get_db()
+        node = db.execute(
+            "SELECT node_id, ip, port, status FROM nodes WHERE node_id = ?",
+            (node_id,)
+        ).fetchone()
+
+        if not node:
+            return jsonify({'error': '节点不存在'}), 404
+
+        return jsonify({
+            'node_id': node['node_id'],
+            'ip': node['ip'],
+            'port': node['port'],
+            'status': node['status']
+        })
+    except Exception as e:
+        print(f"[ERROR] 获取节点信息失败: {e}")
+        return jsonify({'error': str(e)}), 500
 # ========== [新增] 分享代理路由 ==========
 @app.route('/api/internal/test-connection', methods=['POST'])
 def test_connection():
@@ -493,25 +629,43 @@ def init_db():
         )
     ''')
 
+    # 👇 节点表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS nodes (
+            node_id TEXT PRIMARY KEY,
+            ip TEXT NOT NULL,
+            port INTEGER NOT NULL,
+            status TEXT DEFAULT 'offline',
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
     # 👇 默认管理员
     cursor.execute('''
         INSERT OR IGNORE INTO users (username, password_hash, role, email)
         VALUES ('admin', '123', 'admin', 'admin@nas.local')
     ''')
 
-    # 👇 默认分组
-    groups_data = [
-        ('group_core', '核心服务器组', '生产环境', '["node-1","node-2"]', '#ef4444', '🔥'),
-        ('group_local', '本地节点组', '测试开发', '["node-5"]', '#8b5cf6', '🏠')
-    ]
-
-    for g in groups_data:
-        cursor.execute('''
-            INSERT OR IGNORE INTO node_groups
-            (group_id, group_name, description, node_ids, color, icon)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', g)
-
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS node_group_members (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            FOREIGN KEY (group_id) REFERENCES node_groups(group_id),
+            UNIQUE(group_id, node_id)
+        )
+    ''')
+    # 在 init_db() 函数中添加
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS node_whitelist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            node_id TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            UNIQUE(node_id, user_id)
+        )
+    ''')
     conn.commit()
     conn.close()
 
@@ -1026,16 +1180,24 @@ def create_node_group():
     conn = sqlite3.connect('nas_center.db')
     cursor = conn.cursor()
 
+    # 插入分组信息
     cursor.execute('''
         INSERT INTO node_groups (group_id, group_name, description, node_ids, color, icon)
         VALUES (?, ?, ?, ?, ?, ?)
     ''', (group_id, data['group_name'], data.get('description', ''),
           json.dumps(data['node_ids']), data.get('color', '#3b82f6'), data.get('icon', '📁')))
 
+    # 同时插入到 node_group_members 表
+    node_ids = data.get('node_ids', [])
+    for node_id in node_ids:
+        cursor.execute('''
+            INSERT OR IGNORE INTO node_group_members (group_id, node_id)
+            VALUES (?, ?)
+        ''', (group_id, node_id))
+
     conn.commit()
     conn.close()
     return jsonify({"success": True, "group_id": group_id})
-
 
 # 替换内存存储的版本
 
@@ -1092,12 +1254,24 @@ def update_node_group(group_id):
     conn = sqlite3.connect('nas_center.db')
     cursor = conn.cursor()
 
+    # 更新分组信息
     cursor.execute('''
         UPDATE node_groups 
         SET group_name=?, description=?, node_ids=?, color=?, icon=?
         WHERE group_id=?
     ''', (data['group_name'], data.get('description', ''), json.dumps(data['node_ids']),
           data.get('color', '#3b82f6'), data.get('icon', '📁'), group_id))
+
+    # 删除旧的成员关系
+    cursor.execute('DELETE FROM node_group_members WHERE group_id = ?', (group_id,))
+
+    # 插入新的成员关系
+    node_ids = data.get('node_ids', [])
+    for node_id in node_ids:
+        cursor.execute('''
+            INSERT OR IGNORE INTO node_group_members (group_id, node_id)
+            VALUES (?, ?)
+        ''', (group_id, node_id))
 
     conn.commit()
     conn.close()
@@ -1110,7 +1284,12 @@ def update_node_group(group_id):
 def delete_node_group(group_id):
     conn = sqlite3.connect('nas_center.db')
     cursor = conn.cursor()
+
+    # 删除分组
     cursor.execute('DELETE FROM node_groups WHERE group_id = ?', (group_id,))
+    # 同时删除成员关系
+    cursor.execute('DELETE FROM node_group_members WHERE group_id = ?', (group_id,))
+
     conn.commit()
     conn.close()
     return jsonify({"success": True})
@@ -2002,35 +2181,37 @@ def get_stats():
             'offline_nodes': 0,
             'warning_nodes': 0
         }), 500
-@app.route('/api/nodes/<node_id>/disks', methods=['GET'])
+
+
+@app.route('/api/nodes/<node_id>/disks')
+@login_required
 def get_node_disks(node_id):
-    """获取节点的真实磁盘信息"""
-    node_config = None
-    for config in get_all_nodes_from_db():
-        if config['id'] == node_id:
-            node_config = config
-            break
-
-    if not node_config:
-        return jsonify({"error": "节点不存在"}), 404
-
     try:
-        base_url = f"http://{node_config['ip']}:{node_config['port']}"
-        response = requests.get(f"{base_url}/api/disks", timeout=5)
+        # 从数据库获取节点信息
+        db = get_db()
+        cursor = db.execute('SELECT node_id, ip, port FROM nodes WHERE node_id = ?', (node_id,))
+        node = cursor.fetchone()
+
+        if not node:
+            return jsonify({'error': '节点不存在'}), 404
+
+        # 直接请求节点的磁盘信息
+        base_url = f"http://{node['ip']}:{node['port']}"
+        response = requests.get(f"{base_url}/api/disks", timeout=10)
 
         if response.status_code == 200:
             disks_data = response.json()
             return jsonify({
                 "success": True,
-                "node_name": node_config['name'],
                 "disks": disks_data
-            })
+            }), 200
         else:
-            return jsonify({"error": "获取磁盘信息失败"}), 500
+            return jsonify({'error': f'获取磁盘信息失败: {response.text}'}), response.status_code
 
+    except requests.RequestException as e:
+        return jsonify({'error': f'请求节点失败: {str(e)}'}), 500
     except Exception as e:
-        return jsonify({"error": f"请求失败: {str(e)}"}), 500
-
+        return jsonify({'error': f'服务器错误: {str(e)}'}), 500
 
 @app.route('/api/users/<int:user_id>/password', methods=['PUT'])
 @login_required

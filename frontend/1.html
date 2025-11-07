@@ -1818,48 +1818,68 @@
 </div>
   </div>
 
-  <!-- 内存使用 -->
+  <!-- 内存和网络带宽 - 合并为一个卡片 -->
+<div class="bg-white rounded-lg shadow border p-4">
+  <div class="space-y-3">
+    <!-- 内存 - 第一行 -->
+    <div class="flex items-center justify-between">
+      <h4 class="font-semibold text-sm flex items-center gap-2">
+        <span class="text-xl">🧠</span> 内存
+      </h4>
+      <span class="font-bold text-sm">{{ window.selectedNodeStats.memory_percent ?? '--' }}%</span>
+    </div>
+
+    <!-- 分割线 -->
+    <div class="border-t"></div>
+
+    <!-- 网络带宽 - 第二行 -->
+    <div>
+      <h4 class="font-semibold text-sm flex items-center gap-2 mb-2">
+        <span class="text-xl">🌐</span> 网络带宽
+      </h4>
+      <div class="grid grid-cols-2 gap-4 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-700">下载</span>
+          <span class="font-bold text-green-600">{{ window.selectedNodeStats.network_download !== undefined && window.selectedNodeStats.network_download !== null ? window.selectedNodeStats.network_download : '--' }} MB/s</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-gray-700">上传</span>
+          <span class="font-bold text-blue-600">{{ window.selectedNodeStats.network_upload !== undefined && window.selectedNodeStats.network_upload !== null ? window.selectedNodeStats.network_upload : '--' }} MB/s</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+ <!-- 硬盘 -->
 <div class="bg-white rounded-lg shadow border p-4">
   <h4 class="font-semibold mb-4 text-lg flex items-center gap-2">
-    <span class="text-2xl">🧠</span> 内存
+    <span class="text-2xl">💾</span> 硬盘
   </h4>
   <div class="space-y-2 text-sm">
+    <!-- 温度信息 - 使用备用方案 -->
     <div class="flex justify-between">
-      <span class="text-gray-700">使用率</span>
-      <span class="font-bold">{{ window.selectedNodeStats.memory_percent ?? '--' }}%</span>
+      <span class="text-gray-700">温度</span>
+      <span class="font-bold">
+        {{ (window.selectedNodeStats.disks_temp?.[0]?.value || window.selectedNodeStats.temperatures?.find(t => t.name === 'Temperature')?.value || '--') }}°C
+      </span>
+    </div>
+
+    <!-- 硬盘列表 -->
+    <div v-if="window.selectedNodeDisks && window.selectedNodeDisks.length > 0" class="border-t pt-2 space-y-2">
+      <div v-for="disk in window.selectedNodeDisks" :key="disk.mount" class="text-xs">
+        <div class="flex justify-between text-gray-600">
+          <span>{{ disk.mount }}</span>
+          <span>{{ disk.total_gb ? ((disk.used_gb / disk.total_gb) * 100).toFixed(1) : 0 }}%</span>
+        </div>
+        <div class="flex justify-between text-gray-500">
+          <span>{{ disk.used_gb }} GB / {{ disk.total_gb }} GB</span>
+        </div>
+      </div>
     </div>
   </div>
 </div>
 
-  <!-- 硬盘温度 -->
-  <div class="bg-white rounded-lg shadow border p-4">
-    <h4 class="font-semibold mb-4 text-lg flex items-center gap-2">
-      <span class="text-2xl">💾</span> 硬盘
-    </h4>
-    <div class="space-y-2 text-sm">
-  <div class="flex justify-between">
-    <span class="text-gray-700">温度</span>
-    <span class="font-bold">{{ (window.selectedNodeStats.disks_temp && window.selectedNodeStats.disks_temp[0]) ? window.selectedNodeStats.disks_temp[0].value : '--' }}°C</span>
-  </div>
-</div>
-  </div>
-
-  <!-- 网络带宽 -->
-  <div class="bg-white rounded-lg shadow border p-4">
-    <h4 class="font-semibold mb-4 text-lg flex items-center gap-2">
-      <span class="text-2xl">🌐</span> 网络带宽
-    </h4>
-    <div class="grid grid-cols-2 gap-4 text-sm">
-      <div class="flex justify-between">
-        <span class="text-gray-700">下载</span>
-        <span class="font-bold text-green-600">{{ window.selectedNodeStats.network_download !== undefined && window.selectedNodeStats.network_download !== null ? window.selectedNodeStats.network_download : '--' }} MB/s</span>
-      </div>
-      <div class="flex justify-between">
-        <span class="text-gray-700">上传</span>
-        <span class="font-bold text-blue-600">{{ window.selectedNodeStats.network_upload !== undefined && window.selectedNodeStats.network_upload !== null ? window.selectedNodeStats.network_upload : '--' }} MB/s</span>
-      </div>
-    </div>
-  </div>
 </div>
   </div>
 </div>

@@ -200,31 +200,39 @@
           return;
         }
 
-        // 2. 登录成功后,根据场景决定跳转目标
-        if (redirectType === 'client') {
-          // ✅ 场景2: 来自客户端 → 生成令牌后跳转回客户端
-          loginButtonText.textContent = '正在跳转到客户端...';
+      if (redirectType === 'client') {
+  // ✅ 场景2: 来自客户端 → 生成令牌后跳转回客户端
+  loginButtonText.textContent = '正在跳转到客户端...';
 
-          const tokenResponse = await axios.post(`${apiBaseUrl}/api/generate-node-access-token`, {
-            node_id: nodeId
-          });
+  const tokenResponse = await axios.post(`${apiBaseUrl}/api/generate-node-access-token`, {
+    node_id: nodeId
+  });
 
-          if (tokenResponse.data.success) {
-            const token = tokenResponse.data.token;
+  if (tokenResponse.data.success) {
+    const token = tokenResponse.data.token;
 
-            // 跳转到客户端桌面,携带访问令牌
-            window.location.href = `http://127.0.0.1:5000/desktop?token=${token}`;
-          } else {
-            showError('生成访问令牌失败');
-            loginButton.disabled = false;
-            loginButtonText.textContent = '登录';
-            loginLoading.style.display = 'none';
-          }
-        } else {
-          // ✅ 场景1: 首次登录管理端 → 跳转到管理端首页
-          loginButtonText.textContent = '正在跳转到管理中心...';
-          window.location.href = '/';
-        }
+    // ✅ 从数据库获取节点的真实IP和端口
+    try {
+      const nodeResponse = await axios.get(`${apiBaseUrl}/api/nodes/${nodeId}`);
+      const nodeUrl = `http://${nodeResponse.data.ip}:${nodeResponse.data.port}`;
+      window.location.href = `${nodeUrl}/desktop?token=${token}`;
+    } catch (err) {
+      showError('获取节点信息失败');
+      loginButton.disabled = false;
+      loginButtonText.textContent = '登录';
+      loginLoading.style.display = 'none';
+    }
+  } else {
+    showError('生成访问令牌失败');
+    loginButton.disabled = false;
+    loginButtonText.textContent = '登录';
+    loginLoading.style.display = 'none';
+  }
+} else {  // ✅ 这里要加 else
+  // ✅ 场景1: 首次登录管理端 → 跳转到管理端首页
+  loginButtonText.textContent = '正在跳转到管理中心...';
+  window.location.href = '/';
+}
 
       } catch (error) {
         console.error('登录错误:', error);
@@ -247,8 +255,11 @@
               node_id: nodeId
             });
             if (tokenResponse.data.success) {
-              window.location.href = `http://127.0.0.1:5000/desktop?token=${tokenResponse.data.token}`;
-            }
+  // ✅ 动态获取节点地址
+  const nodeResponse = await axios.get(`${apiBaseUrl}/api/nodes/${nodeId}`);
+  const nodeUrl = `http://${nodeResponse.data.ip}:${nodeResponse.data.port}`;
+  window.location.href = `${nodeUrl}/desktop?token=${tokenResponse.data.token}`;
+}
           } else {
             // 否则跳转到管理端首页
             window.location.href = '/';

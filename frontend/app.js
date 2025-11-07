@@ -269,14 +269,16 @@ async renameNode(window, node) {
             try {
                 const response = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/disks`);
 
-                if (response.data.success) {
+                console.log('[DEBUG] 磁盘信息响应:', response.data);
+
+                if (response.data && response.data.disks) {
                     window.selectedNodeDisks.disks = response.data.disks;
                     window.selectedNodeDisks.loading = false;
                 } else {
-                    throw new Error(response.data.error || '获取磁盘信息失败');
+                    throw new Error(response.data?.error || '获取磁盘信息失败');
                 }
             } catch (error) {
-                console.error('获取磁盘信息失败:', error);
+                console.error('[ERROR] 获取磁盘信息失败:', error);
                 window.selectedNodeDisks.error = error.response?.data?.error || error.message || '无法连接到节点';
                 window.selectedNodeDisks.loading = false;
             }
@@ -304,10 +306,9 @@ async renameNode(window, node) {
             };
             return permissionMap[role] || 'readonly'; // 默认只读
         },
+
         async updateUserPermissions(user) {
-    // 核心逻辑：根据用户选择的新角色，自动设置文件权限
-    // 这一步会立即更新 user 对象，由于 1.html 中的 select 元素
-    // 都使用了 v-model 绑定，文件权限的下拉框会立即显示新的权限。
+
     user.file_permission = this.getPermissionByRole(user.role);
 
     // 准备发送给后端的数据
@@ -767,10 +768,15 @@ refreshNodeMonitorStats() {
     window.title = `系统监控 - ${node.name}`;
     try {
         const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/monitor-stats`);
-        // 使用 Vue.set 或者直接赋值触发响应式更新
-        window.selectedNodeStats = { ...res.data };  // 使用展开运算符创建新对象
+        window.selectedNodeStats = { ...res.data };
+
+        // 获取磁盘详细信息
+        const disksRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/disks`);
+        window.selectedNodeDisks = disksRes.data.disks || [];
+
         window.monitorView = 'detail';
-        console.log('设置监控数据:', window.selectedNodeStats); // 添加调试日志
+        console.log('设置监控数据:', window.selectedNodeStats);
+        console.log('磁盘数据:', window.selectedNodeDisks);
     } catch (error) {
         console.error('加载节点详细监控数据失败:', error);
         alert('加载节点详细监控数据失败');
@@ -779,6 +785,15 @@ refreshNodeMonitorStats() {
         window.loading = false;
     }
 },
+
+        formatBytes(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
+},
+
 
     returnToMonitorOverview(window) {
         window.monitorView = 'overview';
@@ -795,6 +810,7 @@ refreshNodeMonitorStats() {
         this.currentNodeName = 'NAS Center 主控';
         alert('已返回主控中心');
     },
+
     async checkAuth() {
         try {
             const response = await axios.get(`${this.apiBaseUrl}/api/check-auth`);
@@ -876,7 +892,28 @@ refreshNodeMonitorStats() {
         }
     },
 
-// 👇 [替换] 使用这个新的 updateUser 方法
+    async updateNodePolicy(nodeId, policy) {
+    try {
+        const res = await axios.put(
+            `${this.apiBaseUrl}/api/node-policies/${nodeId}`,
+            { policy: policy }
+        );
+
+        if (res.data.success) {
+            // 更新本地数据
+            if (!this.windows.find(w => w.type === 'node-control')) {
+                const window = this.windows.find(w => w.type === 'node-control');
+                if (window && window.nodePolicies) {
+                    window.nodePolicies[nodeId] = policy;
+                }
+            }
+            alert('节点访问策略已更新');
+        }
+    } catch (error) {
+        console.error('更新节点策略失败:', error);
+        alert('更新节点策略失败: ' + (error.response?.data?.error || error.message));
+    }
+},
     async updateUser(window, user) {
         const email = prompt(`请输入 ${user.username} 的新邮箱:`, user.email);
         // 👇 【修改】允许输入 'guest'
