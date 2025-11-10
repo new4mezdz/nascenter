@@ -175,18 +175,44 @@
     }
 
     .window-controls button {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      border: none;
-      margin-left: 8px;
-      cursor: pointer;
-    }
+  width: 46px;
+  height: 32px;
+  border-radius: 0;
+  border: none;
+  margin-left: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+  font-size: 16px;
+  font-weight: normal;
+}
 
-    .window-controls .close { background: #ff5f57; }
-    .window-controls .minimize { background: #ffbd2e; }
-    .window-controls .maximize { background: #28ca42; }
+.window-controls .minimize {
+  background: transparent;
+  color: #000;
+}
+.window-controls .minimize:hover {
+  background: #e5e5e5;
+}
 
+.window-controls .maximize {
+  background: transparent;
+  color: #000;
+}
+.window-controls .maximize:hover {
+  background: #e5e5e5;
+}
+
+.window-controls .close {
+  background: transparent;
+  color: #000;
+}
+.window-controls .close:hover {
+  background: #e81123;
+  color: white;
+}
     .window-content {
       flex: 1;
       overflow: auto;
@@ -513,9 +539,9 @@
             <span class="font-semibold text-sm">{{ window.title }}</span>
           </div>
           <div class="window-controls flex">
-            <button class="minimize" @click.stop="minimizeWindow(window.id)"></button>
-            <button class="maximize" @click.stop="toggleMaximize(window.id)"></button>
-            <button class="close" @click.stop="closeWindow(window.id)"></button>
+            <button class="minimize" @click.stop="minimizeWindow(window.id)">─</button>
+<button class="maximize" @click.stop="toggleMaximize(window.id)">□</button>
+<button class="close" @click.stop="closeWindow(window.id)">✕</button>
           </div>
         </div>
 
@@ -1747,7 +1773,7 @@
                 </div>
               </div>
               <div class="text-xs text-gray-600 mt-1 text-right">
-                {{ node.used_storage }} / {{ node.total_storage }} GB
+                {{ node.used_storage.toFixed(1) }} / {{ node.total_storage.toFixed(1) }} GB
               </div>
             </div>
             <div>

@@ -81,6 +81,10 @@ createApp({
     this.windows.push(win);
     return win;
 },
+
+
+
+
         closeWindow(id) {
             const index = this.windows.findIndex(w => w.id === id);
             if (index !== -1) {
@@ -791,7 +795,7 @@ refreshNodeMonitorStats() {
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
+    return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + sizes[i];
 },
 
 

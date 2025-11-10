@@ -140,6 +140,7 @@ def admin_required(f):
     return decorated_function
 
 
+
 def login_required(f):
     """要求登录的装饰器"""
     from functools import wraps
