@@ -44,7 +44,14 @@ createApp({
                 allowed_groups: [],
                 allowed_nodes: [],
                 denied_nodes: []
-            }
+            },
+                desktopBackground: localStorage.getItem('desktopBackground') || '',
+            showBackgroundDialog: false,
+            backgroundUrl: '',
+            backgroundFile: null,
+            // 关于和帮助
+            showAboutDialog: false,
+            showHelpDialog: false
         };
     },
     mounted() {
@@ -1150,8 +1157,15 @@ openCreateGroupDialog() {
     this.showGroupDialog = true;
 },
 
-// ... 其他 methods ...
+openAboutDialog() {
+    this.showAboutDialog = true;
+    this.showStartMenu = false;
+  },
 
+  openHelpDialog() {
+    this.showHelpDialog = true;
+    this.showStartMenu = false;
+  },
 
     openEditGroupDialog(window, group) {
         this.groupDialogMode = 'edit';
@@ -1352,6 +1366,47 @@ const res = await axios.put(
 
   refreshCurrentNode() {
     alert(`刷新节点: ${this.currentNodeName}`);
+  },
+       // 背景图片设置
+  openBackgroundDialog() {
+    this.backgroundUrl = this.desktopBackground.startsWith('data:') ? '' : this.desktopBackground;
+    this.backgroundFile = null;
+    this.showBackgroundDialog = true;
+    this.showStartMenu = false;
+  },
+
+  handleBackgroundFile(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('请选择图片文件');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      this.backgroundFile = e.target.result;
+      this.backgroundUrl = '';
+    };
+    reader.readAsDataURL(file);
+  },
+
+  setBackground() {
+    const bg = this.backgroundFile || this.backgroundUrl;
+    if (bg) {
+      this.desktopBackground = bg;
+      localStorage.setItem('desktopBackground', bg);
+    }
+    this.showBackgroundDialog = false;
+  },
+
+  resetBackground() {
+    this.desktopBackground = '';
+    this.backgroundUrl = '';
+    this.backgroundFile = null;
+    localStorage.removeItem('desktopBackground');
+    this.showBackgroundDialog = false;
   }
 
      }
