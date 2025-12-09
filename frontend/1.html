@@ -1981,6 +1981,14 @@
           </div>
         </div>
 
+        <div v-if="currentUser?.role === 'admin'" class="start-menu-item" @click="openSecretDialog(); showStartMenu = false">
+          <span class="text-xl">🛡️</span>
+          <div class="flex-1">
+            <div class="font-semibold">通信密钥设置</div>
+            <div class="text-xs opacity-70">NAS_SHARED_SECRET</div>
+          </div>
+        </div>
+
         <div class="start-menu-item" @click="logout(); showStartMenu = false">
           <span class="text-xl">🚪</span>
           <div class="flex-1">
@@ -2406,6 +2414,61 @@
     </div>
     <div class="flex justify-end p-6 border-t">
       <button @click="showHelpDialog = false" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">关闭</button>
+    </div>
+  </div>
+</div>
+
+    <div v-if="showSecretDialog"
+     class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[2000]"
+     @click.self="showSecretDialog = false">
+  <div class="bg-white rounded-lg shadow-xl w-[500px]">
+    <div class="flex justify-between items-center p-6 border-b">
+      <h3 class="text-xl font-bold text-red-600 flex items-center gap-2">
+        <span>🛡️</span> 修改通信密钥
+      </h3>
+      <button @click="showSecretDialog = false" class="text-gray-500 hover:text-gray-700 text-2xl">×</button>
+    </div>
+
+    <div class="p-6">
+      <div class="bg-yellow-50 border-l-4 border-yellow-500 p-4 mb-6">
+        <div class="flex items-start gap-3">
+          <span class="text-2xl">⚠️</span>
+          <div>
+            <p class="font-bold text-yellow-800">高风险操作</p>
+            <p class="text-sm text-yellow-700 mt-1">
+              修改主控端的通信密钥后，<strong>所有已连接的 NAS 节点将立即离线</strong>，直到您手动更新每个节点的密钥配置以匹配此新密钥。
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <label class="block text-sm font-semibold mb-2">新的共享密钥 (NAS_SHARED_SECRET)</label>
+        <div class="relative">
+          <input v-model="newSecretValue"
+                 :type="showSecretPlain ? 'text' : 'password'"
+                 placeholder="请输入新的通信密钥"
+                 class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 pr-10">
+          <button @click="showSecretPlain = !showSecretPlain"
+                  class="absolute right-3 top-2.5 text-gray-500 hover:text-gray-700">
+            {{ showSecretPlain ? '👁️‍🗨️' : '👁️' }}
+          </button>
+        </div>
+      </div>
+
+      <div class="text-xs text-gray-500">
+        建议使用复杂的随机字符串以确保安全。
+      </div>
+    </div>
+
+    <div class="flex justify-end gap-3 p-6 border-t bg-gray-50 rounded-b-lg">
+      <button @click="showSecretDialog = false" class="px-4 py-2 border rounded-lg hover:bg-gray-100">
+        取消
+      </button>
+      <button @click="saveSecret"
+              class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 shadow-md transition flex items-center gap-2">
+        <span>💾</span> 确认修改
+      </button>
     </div>
   </div>
 </div>

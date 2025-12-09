@@ -35,6 +35,9 @@ createApp({
                 nodes: []
             },
             availableNodes: [],  // 所有可用节点列表
+            showSecretDialog: false, // 控制密钥弹窗显示
+    newSecretValue: '',      // 绑定的新密钥输入值
+    showSecretPlain: false,  // 控制密钥明文显示
 
             // 用户节点权限对话框
             showUserAccessDialog: false,
@@ -491,6 +494,37 @@ returnToEncryptionOverview(window) {
 },
 
 
+        openSecretDialog() {
+    this.showSecretDialog = true;
+    this.newSecretValue = ''; // 打开时清空输入框
+    this.showSecretPlain = false;
+},
+
+async saveSecret() {
+    if (!this.newSecretValue) {
+        alert("密钥不能为空！");
+        return;
+    }
+
+    if (!confirm("确定要修改通信密钥吗？\n修改后请务必同步更新所有节点的配置！")) {
+        return;
+    }
+
+    try {
+        const res = await axios.post('/api/admin/update-secret', {
+            secret: this.newSecretValue
+        });
+
+        if (res.data.success) {
+            alert("✅ " + res.data.message);
+            this.showSecretDialog = false;
+        }
+    } catch (e) {
+        console.error(e);
+        const errorMsg = e.response?.data?.error || "请求失败";
+        alert("❌ 修改失败: " + errorMsg);
+    }
+},
 
     // ============ 纠删码配置 ============
     openECConfig() {

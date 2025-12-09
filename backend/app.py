@@ -344,6 +344,57 @@ def get_all_nodes():
         traceback.print_exc()
         return jsonify([]), 500
 
+
+# ========== 系统设置 API ==========
+
+@app.route('/api/admin/update-secret', methods=['POST'])
+@login_required
+@admin_required
+def update_shared_secret():
+    """更新 NAS 通信密钥"""
+    data = request.json
+    new_secret = data.get('secret')
+
+    if not new_secret:
+        return jsonify({'success': False, 'error': '密钥不能为空'}), 400
+
+    # 简单的安全性检查，避免过于简单的密钥（可选）
+    if len(new_secret) < 6:
+        return jsonify({'success': False, 'error': '密钥长度建议至少6位'}), 400
+
+    try:
+        # 1. 修改 config.py 文件
+        config_path = os.path.join(BASE_DIR, 'config.py')
+
+        with open(config_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # 使用正则替换 NAS_SHARED_SECRET = "..." 的内容
+        # 匹配单引号或双引号
+        new_content = re.sub(
+            r'NAS_SHARED_SECRET\s*=\s*["\'].*?["\']',
+            f'NAS_SHARED_SECRET = "{new_secret}"',
+            content
+        )
+
+        with open(config_path, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+
+        # 2. 更新内存中的变量，以便无需重启即可生效
+        global NAS_SHARED_SECRET
+        NAS_SHARED_SECRET = new_secret
+
+        print(f"[系统] 通信密钥已由管理员更新")
+
+        return jsonify({
+            'success': True,
+            'message': '密钥更新成功！请注意：您必须同步更新所有节点的配置，否则它们将无法连接。'
+        })
+
+    except Exception as e:
+        print(f"[Update Secret Error] {e}")
+        return jsonify({'success': False, 'error': f'写入配置文件失败: {str(e)}'}), 500
+
 @app.route('/api/nodes/<node_id>', methods=['GET'])
 def get_node_info(node_id):
     """获取指定节点的信息"""
