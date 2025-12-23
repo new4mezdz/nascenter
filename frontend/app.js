@@ -23,6 +23,17 @@ createApp({
             currentNodeName: 'NAS Center 主控',
             currentUser: null,  // 当前登录用户
             showUserMenu: false, // 用户菜单显示状态
+            helpContent: helpContent,
+
+            // 个人信息
+showProfileDialog: false,
+profileForm: {
+    username: '',
+    email: '',
+    role: '',
+    avatar: '',
+    created_at: ''
+},
 
             // 节点分组相关
             showGroupDialog: false,
@@ -38,6 +49,8 @@ createApp({
             showSecretDialog: false, // 控制密钥弹窗显示
     newSecretValue: '',      // 绑定的新密钥输入值
     showSecretPlain: false,  // 控制密钥明文显示
+            whitelistUsers: [],
+allUsersForWhitelist: [],
 
             // 用户节点权限对话框
             showUserAccessDialog: false,
@@ -223,6 +236,36 @@ async renameNode(window, node) {
         // nascenter/frontend/app.js
 
 
+
+
+async deleteNode(window, node) {
+    const confirmMsg = `确定要删除节点 "${node.name}" 吗？\n\n⚠️ 此操作将从管理中心移除该节点的配置信息。`;
+
+    if (!confirm(confirmMsg)) {
+        return;
+    }
+
+    // 二次确认
+    const doubleConfirm = prompt(`请输入节点名称 "${node.name}" 以确认删除:`);
+    if (doubleConfirm !== node.name) {
+        alert('节点名称不匹配，取消删除');
+        return;
+    }
+
+    try {
+        const response = await axios.delete(
+            `${this.apiBaseUrl}/api/nodes/${node.id}`
+        );
+
+        if (response.data.success) {
+            alert(`✅ 节点 "${node.name}" 已成功删除`);
+            this.loadNodesData(window);
+        }
+    } catch (error) {
+        alert('删除失败: ' + (error.response?.data?.error || error.message));
+    }
+},
+
   async accessNode(node) {
     if (node.status === 'offline') {
         alert(`节点 ${node.name} 当前离线,无法访问`);
@@ -352,16 +395,238 @@ async renameNode(window, node) {
     }
 },
 
-        // ============ 空间分配 ============
-        openSpaceAllocation() {
-            this.createWindow({
-                type: 'space-allocation',
-                title: '空间分配',
-                icon: '📦',
-                width: 1000,
-                height: 700
+
+// ============ 空间分配 ============
+openSpaceAllocation() {
+    const win = this.createWindow({
+        type: 'space-allocation',
+        title: '空间分配',
+        icon: '📦',
+        width: 1100,
+        height: 750,
+        spaceTab: 'cross-node',
+        // 节点相关
+        allNodes: [],
+        selectedPoolNode: null,
+        // 存储池相关
+        poolStatus: null,
+        poolVolumes: [],
+        poolHealth: [],
+        availableDisks: [],
+        poolLoading: false,
+        // 逻辑卷表单
+        showVolumeDialog: false,
+        volumeForm: { name: '', display_name: '', icon: '📁', strategy: 'largest_free' },
+        volumeEditMode: false,
+        // 添加磁盘
+        showAddDiskDialog: false,
+        selectedNewDisk: null
+    });
+    this.loadNodesForSpaceAllocation(win);
+},
+
+// 加载节点列表
+async loadNodesForSpaceAllocation(win) {
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes`);
+        win.allNodes = res.data || [];
+    } catch (e) {
+        console.error('加载节点失败', e);
+        win.allNodes = [];
+    }
+},
+
+// 选择节点查看存储池
+async selectNodeForPool(win, node) {
+    win.selectedPoolNode = node;
+    win.poolLoading = true;
+    win.poolStatus = null;
+    win.poolVolumes = [];
+    try {
+        const [statusRes, volumesRes, healthRes] = await Promise.all([
+            axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/pool/status`),
+            axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/pool/volumes`),
+            axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/pool/health`)
+        ]);
+        win.poolStatus = statusRes.data;
+        // 把字典转成数组
+const volumesData = volumesRes.data || {};
+win.poolVolumes = Object.entries(volumesData).map(([name, vol]) => ({
+    name: name,
+    ...vol
+}));
+        win.poolHealth = healthRes.data || [];
+    } catch (e) {
+        console.error('加载存储池数据失败', e);
+        win.poolStatus = { error: e.response?.data?.error || '无法连接节点或该节点未配置存储池' };
+    }
+    win.poolLoading = false;
+},
+
+// 刷新当前节点存储池
+async refreshNodePool(win) {
+    if (win.selectedPoolNode) {
+        await this.selectNodeForPool(win, win.selectedPoolNode);
+    }
+},
+
+// 加载可用磁盘
+async loadAvailableDisks(win) {
+    if (!win.selectedPoolNode) return;
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${win.selectedPoolNode.id}/proxy/pool/available-disks`);
+        win.availableDisks = res.data || [];
+    } catch (e) {
+        console.error('加载可用磁盘失败', e);
+        win.availableDisks = [];
+    }
+},
+
+// 打开添加磁盘对话框
+async openAddDiskDialog(win) {
+    await this.loadAvailableDisks(win);
+    win.selectedNewDisk = null;
+    win.showAddDiskDialog = true;
+},
+
+// 添加磁盘到存储池
+async addDiskToPool(win) {
+    if (!win.selectedNewDisk) {
+        alert('请选择要添加的磁盘');
+        return;
+    }
+    try {
+        await axios.post(`${this.apiBaseUrl}/api/nodes/${win.selectedPoolNode.id}/proxy/pool/disk/add`, { disk: win.selectedNewDisk });
+        alert('磁盘添加成功');
+        win.showAddDiskDialog = false;
+        this.refreshNodePool(win);
+    } catch (e) {
+        alert('添加失败: ' + (e.response?.data?.error || e.message));
+    }
+},
+
+// 移除磁盘
+async removeDiskFromPool(win, diskPath) {
+    if (!confirm(`确定要从存储池移除磁盘 ${diskPath} 吗？\n数据将自动迁移到其他磁盘。`)) return;
+    try {
+        await axios.post(`${this.apiBaseUrl}/api/nodes/${win.selectedPoolNode.id}/proxy/pool/disk/remove`, { disk: diskPath, migrate: true });
+        alert('磁盘移除成功');
+        this.refreshNodePool(win);
+    } catch (e) {
+        alert('移除失败: ' + (e.response?.data?.error || e.message));
+    }
+},
+
+// 重平衡存储池
+async rebalancePool(win, dryRun = true) {
+    try {
+        const res = await axios.post(`${this.apiBaseUrl}/api/nodes/${win.selectedPoolNode.id}/proxy/pool/rebalance`, { dry_run: dryRun });
+        if (dryRun) {
+            const msg = res.data.moves?.length
+                ? `预计迁移 ${res.data.moves.length} 个文件，确定执行？`
+                : '当前数据分布已平衡，无需迁移';
+            if (res.data.moves?.length && confirm(msg)) {
+                await this.rebalancePool(win, false);
+            } else {
+                alert(msg);
+            }
+        } else {
+            alert('重平衡完成');
+            this.refreshNodePool(win);
+        }
+    } catch (e) {
+        alert('重平衡失败: ' + (e.response?.data?.error || e.message));
+    }
+},
+
+// 打开创建逻辑卷对话框
+openCreateVolumeDialog(win) {
+    win.volumeForm = { name: '', display_name: '', icon: '📁', strategy: 'largest_free' };
+    win.volumeEditMode = false;
+    win.showVolumeDialog = true;
+},
+
+// 打开编辑逻辑卷对话框
+openEditVolumeDialog(win, vol) {
+    win.volumeForm = {
+        name: vol.name,
+        display_name: vol.display_name,
+        icon: vol.icon || '📁',
+        strategy: vol.strategy || 'largest_free'
+    };
+    win.volumeEditMode = true;
+    win.showVolumeDialog = true;
+},
+
+// 保存逻辑卷
+async saveVolume(win) {
+    const form = win.volumeForm;
+    if (!form.name || !form.display_name) {
+        alert('请填写卷名和显示名称');
+        return;
+    }
+    try {
+        if (win.volumeEditMode) {
+            await axios.patch(`${this.apiBaseUrl}/api/nodes/${win.selectedPoolNode.id}/proxy/pool/volume/${form.name}`, {
+                display_name: form.display_name,
+                icon: form.icon,
+                strategy: form.strategy
             });
-        },
+        } else {
+            await axios.post(`${this.apiBaseUrl}/api/nodes/${win.selectedPoolNode.id}/proxy/pool/volume/create`, form);
+        }
+        alert(win.volumeEditMode ? '更新成功' : '创建成功');
+        win.showVolumeDialog = false;
+        this.refreshNodePool(win);
+    } catch (e) {
+        alert('操作失败: ' + (e.response?.data?.error || e.message));
+    }
+},
+
+// 删除逻辑卷
+async deleteVolume(win, volName) {
+    if (!confirm(`确定删除逻辑卷 "${volName}" 吗？此操作不可恢复！`)) return;
+    try {
+        await axios.delete(`${this.apiBaseUrl}/api/nodes/${win.selectedPoolNode.id}/proxy/pool/volume/${volName}?confirm=true`);
+        alert('删除成功');
+        this.refreshNodePool(win);
+    } catch (e) {
+        alert('删除失败: ' + (e.response?.data?.error || e.message));
+    }
+},
+
+// 加载节点列表
+async loadNodesForSpaceAllocation(win) {
+    try {
+        const res = await axios.get('/api/nodes');
+        win.allNodes = res.data || [];
+    } catch (e) {
+        console.error('加载节点失败', e);
+        win.allNodes = [];
+    }
+},
+
+// 选择节点查看存储池
+async selectNodeForPool(win, node) {
+    win.selectedPoolNode = node;
+    win.poolLoading = true;
+    win.poolStatus = null;
+    win.poolVolumes = [];
+    try {
+        const [statusRes, volumesRes, healthRes] = await Promise.all([
+            axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/proxy/pool/status`),
+            axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/proxy/pool/volumes`),
+            axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/proxy/pool/health`)
+        ]);
+        win.poolStatus = statusRes.data;
+        win.poolVolumes = volumesRes.data || [];
+        win.poolHealth = healthRes.data || [];
+    } catch (e) {
+        console.error('加载存储池数据失败', e);
+        win.poolStatus = { error: e.response?.data?.error || '无法连接节点或该节点未配置存储池' };
+    }
+    win.poolLoading = false;
+},
 
         // ============ 权限设置 ============
         openPermissionSettings() {
@@ -386,11 +651,16 @@ async renameNode(window, node) {
     try {
         window.loading = true;
 
-        const [usersRes, nodesRes, groupsRes] = await Promise.all([
-            axios.get(`${this.apiBaseUrl}/api/users`),
-            axios.get(`${this.apiBaseUrl}/api/nodes`),
-            axios.get(`${this.apiBaseUrl}/api/node-groups`)
-        ]);
+        const [usersRes, nodesRes, groupsRes, whitelistRes] = await Promise.all([
+    axios.get(`${this.apiBaseUrl}/api/users`),
+    axios.get(`${this.apiBaseUrl}/api/nodes`),
+    axios.get(`${this.apiBaseUrl}/api/node-groups`),
+    axios.get(`${this.apiBaseUrl}/api/admin/whitelist`)
+]);
+
+// 白名单数据
+this.whitelistUsers = whitelistRes.data.whitelist;
+this.allUsersForWhitelist = usersRes.data.filter(u => u.role !== 'admin');
 
         // 用户列表
         window.users = usersRes.data.map(user => {
@@ -545,6 +815,8 @@ async saveSecret() {
         ecConfig: null,
         capacity: null,
         availableDisks: [],
+        nodes: [],           // 👈 新增
+        selectedNodeId: '',  // 👈 新增
         loading: true,
 
         // 配置表单
@@ -993,6 +1265,44 @@ refreshNodeMonitorStats() {
         }
     },
 
+
+async loadWhitelist() {
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/admin/whitelist`);
+        this.whitelistUsers = res.data.whitelist;
+    } catch (error) {
+        console.error('加载白名单失败:', error);
+    }
+},
+
+async loadAllUsersForWhitelist() {
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/users`);
+        this.allUsersForWhitelist = res.data.users.filter(u => u.role !== 'admin');
+    } catch (error) {
+        console.error('加载用户列表失败:', error);
+    }
+},
+
+async addToWhitelist(userId) {
+    try {
+        await axios.post(`${this.apiBaseUrl}/api/admin/whitelist`, { user_id: userId });
+        await this.loadWhitelist();
+    } catch (error) {
+        alert(error.response?.data?.error || '添加失败');
+    }
+},
+
+async removeFromWhitelist(userId) {
+    if (!confirm('确定移除该用户？')) return;
+    try {
+        await axios.delete(`${this.apiBaseUrl}/api/admin/whitelist/${userId}`);
+        await this.loadWhitelist();
+    } catch (error) {
+        alert('移除失败');
+    }
+},
+
     async deleteUser(window, user) {
         if (!confirm(`确定要删除用户 ${user.username} 吗？`)) return;
 
@@ -1026,11 +1336,69 @@ refreshNodeMonitorStats() {
             alert('修改密码失败: ' + (error.response?.data?.message || error.message));
         }
     },
-    openUserProfile() {
-        alert('个人信息功能开发中...');
-        // 您也可以在这里调用 this.createWindow(...) 来打开一个新窗口
-        this.showStartMenu = false; // 确保菜单关闭
-    },
+    async openUserProfile() {
+    this.showStartMenu = false;
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/profile`);
+        this.profileForm = {
+            username: res.data.username,
+            email: res.data.email || '',
+            role: res.data.role,
+            avatar: res.data.avatar || '',
+            created_at: res.data.created_at || ''
+        };
+        this.showProfileDialog = true;
+    } catch (error) {
+        alert('获取个人信息失败: ' + (error.response?.data?.error || error.message));
+    }
+},
+
+        async handleAvatarUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+        alert('请选择图片文件');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('avatar', file);
+
+    try {
+        const res = await axios.post(`${this.apiBaseUrl}/api/avatar`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        if (res.data.success) {
+            this.profileForm.avatar = res.data.avatar;
+            // 同步更新当前用户信息
+            if (this.currentUser) {
+                this.currentUser.avatar = res.data.avatar;
+            }
+            alert('头像上传成功');
+        }
+    } catch (error) {
+        alert('上传失败: ' + (error.response?.data?.error || error.message));
+    }
+},
+
+async saveProfile() {
+    try {
+        const res = await axios.put(`${this.apiBaseUrl}/api/profile`, {
+            email: this.profileForm.email
+        });
+        if (res.data.success) {
+            // 更新当前用户信息
+            if (this.currentUser) {
+                this.currentUser.email = this.profileForm.email;
+            }
+            alert('保存成功');
+            this.showProfileDialog = false;
+        }
+    } catch (error) {
+        alert('保存失败: ' + (error.response?.data?.error || error.message));
+    }
+},
     async logout() {
         if (confirm('确定要退出登录吗？')) {
             try {

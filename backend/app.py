@@ -6,6 +6,7 @@ import requests
 import sqlite3, json, time
 from config import NAS_SHARED_SECRET
 import subprocess
+import uuid
 from pathlib import Path
 from flask import g
 NGROK_PATH = Path(__file__).with_name('ngrok.exe')
@@ -14,7 +15,8 @@ FLASK_PORT = 8080
 # ✅ 获取项目根目录(nascenter 文件夹)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, 'frontend')
-
+AVATAR_DIR = os.path.join(FRONTEND_DIR, 'avatars')
+os.makedirs(AVATAR_DIR, exist_ok=True)
 app = Flask(__name__,
             static_folder=FRONTEND_DIR,  # ✅ 指向 frontend 文件夹
             static_url_path='')  # ✅ 静态文件路径为根路径
@@ -257,15 +259,18 @@ def get_all_nodes():
                 # 仅管理员可访问，非管理员跳过
                 continue
 
+
             elif policy == 'whitelist':
-                # 白名单模式：检查用户是否在节点白名单中
+
+                # 白名单模式：检查用户是否在全局白名单中
+
                 if role != 'admin':  # 管理员豁免
-                    cursor.execute('''
-                        SELECT 1 FROM node_whitelist 
-                        WHERE node_id = ? AND user_id = ?
-                    ''', (node_id, user_id))
+
+                    cursor.execute('SELECT 1 FROM whitelist_users WHERE user_id = ?', (user_id,))
+
                     if not cursor.fetchone():
                         # 不在白名单且不是管理员，跳过
+
                         continue
 
             # ========== 通过所有检查，获取节点详细信息 ==========
@@ -507,6 +512,8 @@ def proxy_share_request(node_id, local_token):
     except Exception as e:
         print(f"[ERROR] 代理分享请求失败: {e}")
         return jsonify({"error": f"请求节点失败: {str(e)}"}), 500
+
+
 @app.route('/api/generate-node-access-token', methods=['POST'])
 @login_required
 def generate_node_access_token():
@@ -520,22 +527,32 @@ def generate_node_access_token():
     if not node_id:
         return jsonify({'error': '缺少节点ID'}), 400
 
+    # 从数据库获取用户头像
+    user_id = session['user_id']
+    conn = sqlite3.connect('nas_center.db')
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('SELECT avatar FROM users WHERE id = ?', (user_id,))
+    user_row = cursor.fetchone()
+    conn.close()
+
+    avatar = user_row['avatar'] if user_row and user_row['avatar'] else ''
+
     # 生成 JWT Token (有效期 1 小时)
     token = jwt.encode({
         'user_id': session['user_id'],
         'username': session['username'],
         'role': session.get('role', 'user'),
         'file_permission': session.get('file_permission', 'readonly'),
+        'avatar': avatar,  # 添加头像
         'node_id': node_id,
-        'exp': datetime.utcnow() + timedelta(hours=1)  # 1小时后过期
+        'exp': datetime.utcnow() + timedelta(hours=1)
     }, ACCESS_TOKEN_SECRET, algorithm='HS256')
 
     return jsonify({
         'success': True,
         'token': token
     })
-
-
 
 
 
@@ -612,6 +629,11 @@ def create_offline_node(node_config, reason="unknown"):
 def init_db():
     conn = sqlite3.connect('nas_center.db')
     cursor = conn.cursor()
+    # 在 init_db() 函数的 cursor.execute 后添加
+    cursor.execute("PRAGMA table_info(users)")
+    columns = [col[1] for col in cursor.fetchall()]
+    if 'avatar' not in columns:
+        cursor.execute('ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ""')
 
     # 👇 用户表
     cursor.execute('''
@@ -709,14 +731,12 @@ def init_db():
     ''')
     # 在 init_db() 函数中添加
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS node_whitelist (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            node_id TEXT NOT NULL,
-            user_id INTEGER NOT NULL,
-            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id),
-            UNIQUE(node_id, user_id)
-        )
+        CREATE TABLE IF NOT EXISTS whitelist_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL UNIQUE,
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+)
     ''')
     conn.commit()
     conn.close()
@@ -918,6 +938,70 @@ def logout():
     return jsonify({"success": True, "message": "已退出登录"})
 
 
+@app.route('/api/profile', methods=['GET'])
+@login_required
+def get_profile():
+    """获取当前用户个人资料"""
+    user_id = session.get('user_id')
+    conn = sqlite3.connect('nas_center.db')
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, username, email, role, avatar, created_at FROM users WHERE id = ?', (user_id,))
+    user = cursor.fetchone()
+    conn.close()
+    if user:
+        return jsonify(dict(user))
+    return jsonify({"error": "用户不存在"}), 404
+
+
+@app.route('/api/profile', methods=['PUT'])
+@login_required
+def update_profile():
+    """更新当前用户个人资料"""
+    user_id = session.get('user_id')
+    data = request.json
+    conn = sqlite3.connect('nas_center.db')
+    cursor = conn.cursor()
+    cursor.execute('UPDATE users SET email = ? WHERE id = ?', (data.get('email', ''), user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route('/api/avatar', methods=['POST'])
+@login_required
+def upload_avatar():
+    """上传用户头像"""
+    user_id = session.get('user_id')
+    if 'avatar' not in request.files:
+        return jsonify({"error": "没有文件"}), 400
+
+    file = request.files['avatar']
+    if file.filename == '':
+        return jsonify({"error": "未选择文件"}), 400
+
+    # 检查文件类型
+    allowed_ext = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+    ext = file.filename.rsplit('.', 1)[-1].lower()
+    if ext not in allowed_ext:
+        return jsonify({"error": "不支持的文件类型"}), 400
+
+    # 生成唯一文件名
+    filename = f"{user_id}_{uuid.uuid4().hex[:8]}.{ext}"
+    filepath = os.path.join(AVATAR_DIR, filename)
+    file.save(filepath)
+
+    # 更新数据库
+    avatar_url = f"/avatars/{filename}"
+    conn = sqlite3.connect('nas_center.db')
+    cursor = conn.cursor()
+    cursor.execute('UPDATE users SET avatar = ? WHERE id = ?', (avatar_url, user_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True, "avatar": avatar_url})
+
+
 @app.route('/api/check-auth', methods=['GET'])
 def check_auth():
     """检查登录状态"""
@@ -1117,6 +1201,50 @@ def rename_node(node_id):
         'old_name': old_name,
         'new_name': new_name
     })
+
+
+@app.route('/api/nodes/<node_id>', methods=['DELETE'])
+@admin_required
+def delete_node(node_id):
+    """删除节点"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # 检查节点是否存在
+        cursor.execute('SELECT node_id FROM nodes WHERE node_id = ?', (node_id,))
+        node = cursor.fetchone()
+
+        if not node:
+            return jsonify({'success': False, 'error': '节点不存在'}), 404
+
+        # 删除相关的磁盘信息
+        cursor.execute('DELETE FROM node_disks WHERE node_id = ?', (node_id,))
+
+        # 删除分组关联
+        cursor.execute('DELETE FROM node_group_members WHERE node_id = ?', (node_id,))
+
+        # 删除纠删码配置
+        cursor.execute('DELETE FROM ec_policy_applications WHERE node_id = ?', (node_id,))
+
+        # 删除节点
+        cursor.execute('DELETE FROM nodes WHERE node_id = ?', (node_id,))
+        conn.commit()
+
+        # 同时从内存中移除
+        if node_id in ACTIVE_NODES:
+            del ACTIVE_NODES[node_id]
+
+        return jsonify({
+            'success': True,
+            'message': f'节点 {node_id} 已删除',
+            'deleted_node': node_id
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
 @app.route('/api/users', methods=['GET'])
 def get_users():
     conn = sqlite3.connect('nas_center.db')
@@ -2313,6 +2441,52 @@ def update_node_policy(node_id):
     conn.commit()
     conn.close()
     return jsonify({"success": True})
+
+# ========== 白名单管理 API ==========
+# ========== 全局白名单管理 API ==========
+@app.route('/api/admin/whitelist', methods=['GET'])
+@login_required
+@admin_required
+def get_whitelist():
+    conn = sqlite3.connect('nas_center.db')
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT w.id, w.user_id, u.username, w.added_at
+        FROM whitelist_users w
+        JOIN users u ON w.user_id = u.id
+    ''')
+    whitelist = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return jsonify({"whitelist": whitelist})
+
+@app.route('/api/admin/whitelist', methods=['POST'])
+@login_required
+@admin_required
+def add_to_whitelist():
+    user_id = request.json.get('user_id')
+    conn = sqlite3.connect('nas_center.db')
+    cursor = conn.cursor()
+    try:
+        cursor.execute('INSERT INTO whitelist_users (user_id) VALUES (?)', (user_id,))
+        conn.commit()
+        return jsonify({"success": True})
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "用户已在白名单中"}), 400
+    finally:
+        conn.close()
+
+@app.route('/api/admin/whitelist/<int:user_id>', methods=['DELETE'])
+@login_required
+@admin_required
+def remove_from_whitelist(user_id):
+    conn = sqlite3.connect('nas_center.db')
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM whitelist_users WHERE user_id = ?', (user_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
 @app.errorhandler(404)
 def not_found(error):
     """404 错误处理"""
@@ -2570,7 +2744,7 @@ def apply_ec_policy(policy_id):
         return jsonify({'error': '当前仅支持节点内策略'}), 400
 
     # 获取节点配置
-    cursor.execute('SELECT ip, port FROM nodes WHERE id = ?', (node_id,))
+    cursor.execute('SELECT ip, port FROM nodes WHERE node_id = ?', (node_id,))
     node = cursor.fetchone()
 
     if not node:
@@ -2617,7 +2791,7 @@ def get_node_ec_config(node_id):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute('SELECT ip, port FROM nodes WHERE id = ?', (node_id,))
+    cursor.execute('SELECT ip, port FROM nodes WHERE node_id = ?', (node_id,))
     node = cursor.fetchone()
 
     if not node:
@@ -2628,7 +2802,11 @@ def get_node_ec_config(node_id):
 
     try:
         # 从节点获取配置
-        response = requests.get(f"http://{node_ip}:{node_port}/api/ec_config", timeout=5)
+        response = requests.get(
+            f"http://{node_ip}:{node_port}/api/ec_config",
+            headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+            timeout=5
+        )
 
         if response.status_code == 200:
             data = response.json()
@@ -2642,6 +2820,41 @@ def get_node_ec_config(node_id):
         conn.close()
         return jsonify({'error': f'请求节点失败: {str(e)}'}), 500
 
+@app.route('/api/nodes/<node_id>/ec_config', methods=['POST'])
+@admin_required
+def save_node_ec_config(node_id):
+    """保存节点的纠删码配置"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT ip, port FROM nodes WHERE node_id = ?', (node_id,))
+    node = cursor.fetchone()
+
+    if not node:
+        conn.close()
+        return jsonify({'error': '节点不存在'}), 404
+
+    node_ip, node_port = node[0], node[1]
+
+    try:
+        # 转发配置到节点
+        response = requests.post(
+            f"http://{node_ip}:{node_port}/api/ec_config",
+            json=request.json,
+            headers={'X-NAS-Secret': NAS_SHARED_SECRET},  # 👈 添加这行
+            timeout=10
+        )
+
+        conn.close()
+        if response.status_code == 200:
+            return jsonify({'success': True, 'message': '配置保存成功'})
+        else:
+            return jsonify({'error': response.json().get('error', '保存失败')}), response.status_code
+
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': f'请求节点失败: {str(e)}'}), 500
+
 
 @app.route('/api/nodes/<node_id>/ec_config', methods=['DELETE'])
 @admin_required
@@ -2650,7 +2863,7 @@ def delete_node_ec_config(node_id):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute('SELECT ip, port FROM nodes WHERE id = ?', (node_id,))
+    cursor.execute('SELECT ip, port FROM nodes WHERE node_id = ?', (node_id,))
     node = cursor.fetchone()
 
     if not node:
@@ -2661,7 +2874,11 @@ def delete_node_ec_config(node_id):
 
     try:
         # 删除节点配置
-        response = requests.delete(f"http://{node_ip}:{node_port}/api/ec_config", timeout=10)
+        response = requests.delete(
+            f"http://{node_ip}:{node_port}/api/ec_config",
+            headers={'X-NAS-Secret': NAS_SHARED_SECRET},  # 👈 添加这行
+            timeout=10
+        )
 
         if response.status_code == 200:
             # 删除应用记录
@@ -2788,7 +3005,7 @@ def verify_access_token():
         # 解码JWT
         payload = jwt.decode(token, ACCESS_TOKEN_SECRET, algorithms=['HS256'])
 
-        # ✅ 判断是否为管理员
+        # 判断是否为管理员
         role = payload.get('role', 'user')
         is_admin = (role == 'admin')
 
@@ -2798,6 +3015,7 @@ def verify_access_token():
             'username': payload['username'],
             'role': role,
             'file_permission': payload.get('file_permission', 'readonly'),
+            'avatar': payload.get('avatar', ''),  # 添加头像
             'exp': datetime.utcnow() + timedelta(days=7)
         }, ACCESS_TOKEN_SECRET, algorithm='HS256')
 
@@ -2808,7 +3026,8 @@ def verify_access_token():
                 'username': payload['username'],
                 'role': role,
                 'file_permission': payload.get('file_permission', 'readonly'),
-                'is_admin': is_admin  # ✅ 添加这个字段
+                'avatar': payload.get('avatar', ''),  # 添加头像
+                'is_admin': is_admin
             },
             'token': new_token
         })
@@ -2820,7 +3039,6 @@ def verify_access_token():
     except Exception as e:
         print(f"[验证令牌失败] {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
-
     @app.route('/share/<node_id>/<token>')
     def proxy_share(node_id, token):
         """代理分享链接到节点"""

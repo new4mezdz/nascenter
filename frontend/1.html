@@ -681,6 +681,10 @@
                                   class="px-3 py-1 text-white rounded text-xs">
                             🔗 访问
                           </button>
+                          <button @click="deleteNode(window, node)"
+            class="px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs">
+      🗑️ 删除
+    </button>
                         </div>
                       </td>
                     </tr>
@@ -830,121 +834,270 @@
             </div>
           </div>
 
-          <!-- 空间分配窗口 -->
-          <div v-if="window.type === 'space-allocation'" class="h-full flex flex-col">
-            <div class="px-6 py-4 border-b bg-gradient-to-r from-purple-50 to-pink-50">
-              <h3 class="text-xl font-bold flex items-center gap-2">
-                <span class="text-3xl">📦</span>
-                跨节点空间分配
-              </h3>
-              <p class="text-sm text-gray-600 mt-1">将大文件分发到多个节点存储,优化空间利用</p>
+         <!-- 空间分配窗口 -->
+<div v-if="window.type === 'space-allocation'" class="h-full flex flex-col">
+  <div class="px-6 py-4 border-b bg-gradient-to-r from-purple-50 to-pink-50">
+    <h3 class="text-xl font-bold flex items-center gap-2">
+      <span class="text-3xl">📦</span>
+      空间分配管理
+    </h3>
+    <p class="text-sm text-gray-600 mt-1">管理跨节点分配与节点存储池</p>
+  </div>
+
+  <!-- 标签页切换 -->
+  <div class="flex gap-2 px-6 pt-4 border-b bg-white">
+    <button @click="window.spaceTab = 'cross-node'"
+      :class="window.spaceTab === 'cross-node' ? 'border-b-2 border-blue-500 text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'"
+      class="px-4 py-2 -mb-px">
+      🔀 跨节点分配
+    </button>
+    <button @click="window.spaceTab = 'node-pool'"
+      :class="window.spaceTab === 'node-pool' ? 'border-b-2 border-blue-500 text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'"
+      class="px-4 py-2 -mb-px">
+      💾 节点存储池
+    </button>
+  </div>
+
+  <div class="flex-1 overflow-auto p-6 bg-gray-50">
+
+    <!-- ========== 跨节点分配 ========== -->
+    <div v-if="window.spaceTab === 'cross-node'">
+      <div class="bg-white rounded-lg shadow border p-6 mb-6">
+        <h4 class="font-bold text-lg mb-4">分配策略</h4>
+        <div class="grid grid-cols-3 gap-4">
+          <div class="border-2 border-blue-500 rounded-lg p-4 cursor-pointer hover:bg-blue-50">
+            <div class="text-3xl mb-2">⚖️</div>
+            <div class="font-semibold">负载均衡</div>
+            <div class="text-xs text-gray-600 mt-1">平均分配到所有节点</div>
+          </div>
+          <div class="border-2 border-gray-300 rounded-lg p-4 cursor-pointer hover:bg-gray-50">
+            <div class="text-3xl mb-2">💾</div>
+            <div class="font-semibold">空间优先</div>
+            <div class="text-xs text-gray-600 mt-1">优先使用空间较大的节点</div>
+          </div>
+          <div class="border-2 border-gray-300 rounded-lg p-4 cursor-pointer hover:bg-gray-50">
+            <div class="text-3xl mb-2">⚡</div>
+            <div class="font-semibold">性能优先</div>
+            <div class="text-xs text-gray-600 mt-1">优先使用高性能节点</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-lg shadow border p-6 mb-6">
+        <h4 class="font-bold text-lg mb-4">选择要分配的文件</h4>
+        <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+          <div class="text-6xl mb-4">📁</div>
+          <p class="text-gray-600 mb-4">选择源节点和文件</p>
+          <button class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">浏览文件</button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-lg shadow border p-6 mb-6">
+        <h4 class="font-bold text-lg mb-4">选择目标节点 (至少2个)</h4>
+        <div class="space-y-2">
+          <div class="flex items-center p-3 border-2 border-blue-500 bg-blue-50 rounded-lg">
+            <input type="checkbox" checked class="mr-3 h-5 w-5">
+            <div class="flex-1">
+              <div class="font-semibold">NAS-备份节点</div>
+              <div class="text-xs text-gray-600">可用空间: 1.2 TB | CPU: 25%</div>
             </div>
+            <div class="text-green-600 font-semibold">✓ 已选</div>
+          </div>
+        </div>
+      </div>
 
-            <div class="flex-1 overflow-auto p-6 bg-gray-50">
-              <!-- 分配策略选择 -->
-              <div class="bg-white rounded-lg shadow border p-6 mb-6">
-                <h4 class="font-bold text-lg mb-4">分配策略</h4>
-                <div class="grid grid-cols-3 gap-4">
-                  <div class="border-2 border-blue-500 rounded-lg p-4 cursor-pointer hover:bg-blue-50">
-                    <div class="text-3xl mb-2">⚖️</div>
-                    <div class="font-semibold">负载均衡</div>
-                    <div class="text-xs text-gray-600 mt-1">平均分配到所有节点</div>
-                  </div>
-                  <div class="border-2 border-gray-300 rounded-lg p-4 cursor-pointer hover:bg-gray-50">
-                    <div class="text-3xl mb-2">💾</div>
-                    <div class="font-semibold">空间优先</div>
-                    <div class="text-xs text-gray-600 mt-1">优先使用空间较大的节点</div>
-                  </div>
-                  <div class="border-2 border-gray-300 rounded-lg p-4 cursor-pointer hover:bg-gray-50">
-                    <div class="text-3xl mb-2">⚡</div>
-                    <div class="font-semibold">性能优先</div>
-                    <div class="text-xs text-gray-600 mt-1">优先使用高性能节点</div>
-                  </div>
-                </div>
+      <div class="mt-6 flex justify-end gap-3">
+        <button class="px-6 py-3 bg-gray-200 rounded-lg hover:bg-gray-300">取消</button>
+        <button class="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600">🚀 开始分配</button>
+      </div>
+    </div>
+
+    <!-- ========== 节点存储池 ========== -->
+    <div v-else-if="window.spaceTab === 'node-pool'" class="flex gap-6 h-full">
+      <!-- 左侧：节点列表 -->
+      <div class="w-72 bg-white rounded-lg shadow border p-4 flex-shrink-0">
+        <h4 class="font-bold text-lg mb-4">选择节点</h4>
+        <div class="space-y-2 max-h-[500px] overflow-auto">
+          <div v-for="node in (window.allNodes || [])" :key="node.id"
+            @click="selectNodeForPool(window, node)"
+            :class="window.selectedPoolNode?.id === node.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'"
+            class="p-3 border-2 rounded-lg cursor-pointer transition-all">
+            <div class="flex items-center gap-2">
+              <span class="text-xl">🖥️</span>
+              <div class="flex-1 min-w-0">
+                <div class="font-semibold truncate">{{ node.name }}</div>
+                <div class="text-xs text-gray-500 truncate">{{ node.ip || node.address || '未知地址' }}</div>
               </div>
-
-              <!-- 源文件选择 -->
-              <div class="bg-white rounded-lg shadow border p-6 mb-6">
-                <h4 class="font-bold text-lg mb-4">选择要分配的文件</h4>
-                <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                  <div class="text-6xl mb-4">📁</div>
-                  <p class="text-gray-600 mb-4">选择源节点和文件</p>
-                  <button class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
-                    浏览文件
-                  </button>
-                </div>
-
-                <!-- 已选文件列表示例 -->
-                <div class="mt-4 space-y-2">
-                  <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div class="flex items-center gap-3">
-                      <span class="text-2xl">🎬</span>
-                      <div>
-                        <div class="font-semibold">movie_4K.mp4</div>
-                        <div class="text-xs text-gray-500">25.6 GB - 来自节点: NAS-主节点</div>
-                      </div>
-                    </div>
-                    <button class="text-red-500 hover:text-red-700">✕</button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 目标节点选择 -->
-              <div class="bg-white rounded-lg shadow border p-6 mb-6">
-                <h4 class="font-bold text-lg mb-4">选择目标节点 (至少2个)</h4>
-                <div class="space-y-2">
-                  <div class="flex items-center p-3 border-2 border-blue-500 bg-blue-50 rounded-lg">
-                    <input type="checkbox" checked class="mr-3 h-5 w-5">
-                    <div class="flex-1">
-                      <div class="font-semibold">NAS-备份节点</div>
-                      <div class="text-xs text-gray-600">可用空间: 1.2 TB | CPU: 25% | 延迟: 12ms</div>
-                    </div>
-                    <div class="text-green-600 font-semibold">✓ 已选</div>
-                  </div>
-
-                  <div class="flex items-center p-3 border-2 border-blue-500 bg-blue-50 rounded-lg">
-                    <input type="checkbox" checked class="mr-3 h-5 w-5">
-                    <div class="flex-1">
-                      <div class="font-semibold">我的本地节点</div>
-                      <div class="text-xs text-gray-600">可用空间: 800 GB | CPU: 15% | 延迟: 2ms</div>
-                    </div>
-                    <div class="text-green-600 font-semibold">✓ 已选</div>
-                  </div>
-
-                  <div class="flex items-center p-3 border-2 border-gray-300 rounded-lg">
-                    <input type="checkbox" class="mr-3 h-5 w-5">
-                    <div class="flex-1">
-                      <div class="font-semibold">NAS-存档节点</div>
-                      <div class="text-xs text-gray-600">可用空间: 3.5 TB | CPU: 40% | 延迟: 28ms</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 分配预览 -->
-              <div class="bg-gradient-to-r from-blue-50 to-purple-50 border-l-4 border-blue-500 p-4 rounded">
-                <h4 class="font-semibold text-blue-900 mb-2">📊 分配预览</h4>
-                <div class="text-sm text-blue-800 space-y-1">
-                  <p>• 文件数量: <strong>1</strong> 个</p>
-                  <p>• 总大小: <strong>25.6 GB</strong></p>
-                  <p>• 目标节点: <strong>2</strong> 个</p>
-                  <p>• 每节点分配: <strong>约 12.8 GB</strong></p>
-                  <p>• 预计耗时: <strong>约 8-12 分钟</strong></p>
-                </div>
-              </div>
-
-              <!-- 执行按钮 -->
-              <div class="mt-6 flex justify-end gap-3">
-                <button class="px-6 py-3 bg-gray-200 rounded-lg hover:bg-gray-300">
-                  取消
-                </button>
-                <button class="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center gap-2">
-                  <span>🚀</span>
-                  开始分配
-                </button>
-              </div>
+              <span :class="node.online ? 'bg-green-500' : 'bg-gray-400'" class="w-2 h-2 rounded-full"></span>
             </div>
           </div>
+          <div v-if="!window.allNodes || window.allNodes.length === 0" class="text-center text-gray-500 py-8">
+            暂无可用节点
+          </div>
+        </div>
+      </div>
+
+      <!-- 右侧：存储池详情 -->
+      <div class="flex-1 min-w-0">
+        <div v-if="!window.selectedPoolNode" class="h-full flex items-center justify-center bg-white rounded-lg shadow border">
+          <div class="text-center text-gray-400">
+            <div class="text-6xl mb-4">👈</div>
+            <p>请先选择一个节点查看其存储池</p>
+          </div>
+        </div>
+
+        <div v-else-if="window.poolLoading" class="h-full flex items-center justify-center bg-white rounded-lg shadow border">
+          <div class="loading"></div>
+          <span class="ml-2">加载中...</span>
+        </div>
+
+        <div v-else-if="window.poolStatus?.error" class="h-full flex items-center justify-center bg-white rounded-lg shadow border">
+          <div class="text-center text-gray-500">
+            <div class="text-6xl mb-4">⚠️</div>
+            <p>{{ window.poolStatus.error }}</p>
+            <button @click="refreshNodePool(window)" class="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">重试</button>
+          </div>
+        </div>
+
+        <div v-else class="space-y-6">
+          <!-- 存储池总览 -->
+          <div class="bg-white rounded-lg shadow border p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h4 class="font-bold text-lg">💿 {{ window.selectedPoolNode.name }} - 存储池</h4>
+              <div class="flex gap-2">
+                <button @click="openAddDiskDialog(window)" class="px-3 py-1.5 bg-green-500 text-white rounded hover:bg-green-600 text-sm">➕ 添加磁盘</button>
+                <button @click="rebalancePool(window, true)" class="px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm">⚖️ 重平衡</button>
+                <button @click="refreshNodePool(window)" class="px-3 py-1.5 bg-gray-200 rounded hover:bg-gray-300 text-sm">🔄</button>
+              </div>
+            </div>
+
+            <!-- 磁盘列表 -->
+            <div v-if="window.poolStatus?.disks?.length" class="space-y-3">
+              <div v-for="disk in window.poolStatus.disks" :key="disk.path" class="border rounded-lg p-4">
+                <div class="flex items-center justify-between mb-2">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xl">💾</span>
+                    <div>
+                      <div class="font-semibold">{{ disk.path }}</div>
+                      <div class="text-xs text-gray-500">{{ disk.fstype || '未知文件系统' }}</div>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span :class="disk.healthy !== false ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'" class="px-2 py-1 rounded text-xs">
+                      {{ disk.healthy !== false ? '健康' : '异常' }}
+                    </span>
+                    <button @click="removeDiskFromPool(window, disk.path)" class="text-red-500 hover:text-red-700 text-sm">移除</button>
+                  </div>
+                </div>
+                <div class="flex justify-between text-sm mb-1">
+                  <span>已用: {{ ((disk.used || 0) / 1073741824).toFixed(1) }} GB / {{ ((disk.total || 0) / 1073741824).toFixed(1) }} GB</span>
+                  <span>{{ disk.total ? Math.round((disk.used / disk.total) * 100) : 0 }}%</span>
+                </div>
+                <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div :class="(disk.used/disk.total*100) > 80 ? 'bg-red-500' : (disk.used/disk.total*100) > 60 ? 'bg-yellow-500' : 'bg-green-500'"
+                    :style="{width: (disk.total ? (disk.used/disk.total*100) : 0) + '%'}" class="h-full"></div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="text-center text-gray-500 py-6">该节点暂无存储池磁盘</div>
+          </div>
+
+          <!-- 逻辑卷管理 -->
+          <div class="bg-white rounded-lg shadow border p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h4 class="font-bold text-lg">📂 逻辑卷</h4>
+              <button @click="openCreateVolumeDialog(window)" class="px-3 py-1.5 bg-purple-500 text-white rounded hover:bg-purple-600 text-sm">➕ 新建</button>
+            </div>
+
+            <div v-if="window.poolVolumes?.length" class="grid grid-cols-2 gap-4">
+              <div v-for="vol in window.poolVolumes" :key="vol.name" class="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-2xl">{{ vol.icon || '📁' }}</span>
+                  <div class="flex-1 min-w-0">
+                    <div class="font-semibold truncate">{{ vol.display_name || vol.name }}</div>
+                    <div class="text-xs text-gray-500">{{ vol.name }} · {{ vol.strategy || 'largest_free' }}</div>
+                  </div>
+                </div>
+                <div class="text-sm text-gray-600 mb-3">
+                  文件数: {{ vol.file_count || 0 }} · 大小: {{ ((vol.total_size || 0) / 1073741824).toFixed(2) }} GB
+                </div>
+                <div class="flex gap-2">
+                  <button @click="openEditVolumeDialog(window, vol)" class="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200">编辑</button>
+                  <button @click="deleteVolume(window, vol.name)" class="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">删除</button>
+                </div>
+              </div>
+            </div>
+            <div v-else class="text-center text-gray-500 py-6">暂无逻辑卷</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 添加磁盘对话框 -->
+      <div v-if="window.showAddDiskDialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl w-96 p-6">
+          <h3 class="text-lg font-bold mb-4">添加磁盘到存储池</h3>
+          <div class="space-y-2 max-h-60 overflow-auto mb-4">
+            <div v-for="disk in window.availableDisks" :key="disk.drive"
+  @click="window.selectedNewDisk = disk.drive"
+  :class="window.selectedNewDisk === disk.drive ? 'border-blue-500 bg-blue-50' : 'border-gray-200'"
+  class="p-3 border-2 rounded cursor-pointer hover:bg-gray-50">
+  <div class="font-semibold">{{ disk.drive }}</div>
+  <div class="text-xs text-gray-500">可用: {{ (disk.free / 1073741824).toFixed(1) }} GB / {{ (disk.total / 1073741824).toFixed(1) }} GB</div>
+</div>
+            <div v-if="!window.availableDisks?.length" class="text-center text-gray-500 py-4">无可用磁盘</div>
+          </div>
+          <div class="flex justify-end gap-2">
+            <button @click="window.showAddDiskDialog = false" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">取消</button>
+            <button @click="addDiskToPool(window)" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">添加</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 逻辑卷对话框 -->
+      <div v-if="window.showVolumeDialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl w-96 p-6">
+          <h3 class="text-lg font-bold mb-4">{{ window.volumeEditMode ? '编辑' : '新建' }}逻辑卷</h3>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium mb-1">卷名 (英文)</label>
+              <input v-model="window.volumeForm.name" :disabled="window.volumeEditMode" class="w-full border rounded px-3 py-2" placeholder="如: movies">
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">显示名称</label>
+              <input v-model="window.volumeForm.display_name" class="w-full border rounded px-3 py-2" placeholder="如: 电影库">
+            </div>
+            <div>
+  <label class="block text-sm font-medium mb-1">图标</label>
+  <div class="flex flex-wrap gap-2">
+    <button v-for="icon in ['📁', '📂', '🗂️', '📦', '🎬', '🎵', '📷', '🎮', '💾', '📚', '📀', '💿', '🖥️', '☁️', '📝', '🔒']"
+            type="button"
+            :key="icon"
+            @click="window.volumeForm.icon = icon"
+            :class="window.volumeForm.icon === icon ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'"
+            class="w-10 h-10 rounded-lg text-xl flex items-center justify-center transition">
+      {{ icon }}
+    </button>
+  </div>
+</div>
+            <div>
+              <label class="block text-sm font-medium mb-1">存储策略</label>
+              <select v-model="window.volumeForm.strategy" class="w-full border rounded px-3 py-2">
+                <option value="largest_free">最大可用空间优先</option>
+                <option value="round_robin">轮询分配</option>
+                <option value="random">随机分配</option>
+              </select>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 mt-6">
+            <button @click="window.showVolumeDialog = false" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">取消</button>
+            <button @click="saveVolume(window)" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">保存</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
 
           <!-- 权限设置窗口 -->
           <div v-if="window.type === 'permissions'" class="h-full flex flex-col">
@@ -1220,9 +1373,46 @@
 
 
 
-
-                </div>
+</div>
               </div>
+
+  <!-- 白名单管理区域 -->
+
+  <div class="bg-white rounded-lg shadow border p-6 mt-6">
+    <h4 class="font-bold text-lg mb-4">📋 白名单用户管理</h4>
+    <p class="text-sm text-gray-600 mb-4">将用户加入白名单后，所有设置为"白名单用户"策略的节点都允许这些用户访问</p>
+
+    <div class="flex gap-6">
+      <!-- 添加用户 -->
+      <div class="flex-1">
+        <div class="text-sm font-semibold mb-2">添加用户到白名单</div>
+        <select @change="addToWhitelist($event.target.value); $event.target.value=''"
+                class="w-full px-3 py-2 border rounded">
+          <option value="">选择用户...</option>
+          <option v-for="user in allUsersForWhitelist.filter(u => !whitelistUsers.find(w => w.user_id === u.id))"
+                  :key="user.id" :value="user.id">
+            {{ user.username }}
+          </option>
+        </select>
+      </div>
+
+      <!-- 白名单列表 -->
+      <div class="flex-1">
+        <div class="text-sm font-semibold mb-2">当前白名单用户 ({{ whitelistUsers.length }}人)</div>
+        <div class="border rounded max-h-40 overflow-y-auto">
+          <div v-if="whitelistUsers.length === 0" class="p-3 text-gray-500 text-sm text-center">
+            暂无白名单用户
+          </div>
+          <div v-for="user in whitelistUsers" :key="user.id"
+               class="flex justify-between items-center p-2 border-b last:border-b-0 hover:bg-gray-50">
+            <span class="text-sm">👤 {{ user.username }}</span>
+            <button @click="removeFromWhitelist(user.user_id)"
+                    class="text-red-500 text-xs hover:text-red-700">移除</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
   </div>
 </div>
 
@@ -2335,82 +2525,51 @@
       <button @click="showHelpDialog = false" class="text-gray-500 hover:text-gray-700 text-2xl">×</button>
     </div>
     <div class="flex-1 overflow-auto p-6">
+
       <!-- 快速入门 -->
       <div class="mb-6">
-        <h4 class="font-bold text-lg mb-3 flex items-center gap-2">🚀 快速入门</h4>
+        <h4 class="font-bold text-lg mb-3">{{ helpContent.quickStart.title }}</h4>
         <div class="bg-gray-50 rounded-lg p-4 text-sm space-y-2">
-          <p><strong>1. 添加节点：</strong>在节点管理中点击"添加节点"，输入节点IP和端口</p>
-          <p><strong>2. 访问节点：</strong>双击在线节点或点击"访问"按钮进入节点桌面</p>
-          <p><strong>3. 查看磁盘：</strong>点击节点的"磁盘"按钮查看存储信息</p>
+          <p v-for="(step, index) in helpContent.quickStart.steps" :key="index">
+            <strong>{{ index + 1 }}. {{ step.label }}：</strong>{{ step.text }}
+          </p>
         </div>
       </div>
 
       <!-- 功能说明 -->
       <div class="mb-6">
-        <h4 class="font-bold text-lg mb-3 flex items-center gap-2">📖 功能说明</h4>
+        <h4 class="font-bold text-lg mb-3">{{ helpContent.features.title }}</h4>
         <div class="space-y-3">
-          <details class="bg-gray-50 rounded-lg">
-            <summary class="p-3 cursor-pointer font-medium hover:bg-gray-100 rounded-lg">🖥️ 节点管理</summary>
-            <div class="p-3 pt-0 text-sm text-gray-600">
-              管理所有NAS节点，支持添加、删除、重命名节点，查看节点在线状态和资源使用情况。
-            </div>
-          </details>
-          <details class="bg-gray-50 rounded-lg">
-            <summary class="p-3 cursor-pointer font-medium hover:bg-gray-100 rounded-lg">🔐 磁盘加密</summary>
-            <div class="p-3 pt-0 text-sm text-gray-600">
-              对节点磁盘进行加密保护，支持加密、解密、锁定、解锁操作，保障数据安全。
-            </div>
-          </details>
-          <details class="bg-gray-50 rounded-lg">
-            <summary class="p-3 cursor-pointer font-medium hover:bg-gray-100 rounded-lg">👥 权限管理</summary>
-            <div class="p-3 pt-0 text-sm text-gray-600">
-              管理用户账户和访问权限，可按分组或自定义方式控制用户可访问的节点。
-            </div>
-          </details>
-          <details class="bg-gray-50 rounded-lg">
-            <summary class="p-3 cursor-pointer font-medium hover:bg-gray-100 rounded-lg">📁 节点分组</summary>
-            <div class="p-3 pt-0 text-sm text-gray-600">
-              将节点按用途或位置分组管理，便于批量授权和快速定位。
-            </div>
+          <details v-for="item in helpContent.features.items" :key="item.name" class="bg-gray-50 rounded-lg">
+            <summary class="p-3 cursor-pointer font-medium hover:bg-gray-100 rounded-lg">{{ item.icon }} {{ item.name }}</summary>
+            <div class="p-3 pt-0 text-sm text-gray-600">{{ item.desc }}</div>
           </details>
         </div>
       </div>
 
       <!-- 常见问题 -->
       <div class="mb-6">
-        <h4 class="font-bold text-lg mb-3 flex items-center gap-2">💡 常见问题</h4>
+        <h4 class="font-bold text-lg mb-3">{{ helpContent.faq.title }}</h4>
         <div class="space-y-3">
-          <details class="bg-gray-50 rounded-lg">
-            <summary class="p-3 cursor-pointer font-medium hover:bg-gray-100 rounded-lg">节点显示离线怎么办？</summary>
-            <div class="p-3 pt-0 text-sm text-gray-600">
-              请检查：1. 节点设备是否开机 2. 网络连接是否正常 3. 节点服务是否运行
-            </div>
-          </details>
-          <details class="bg-gray-50 rounded-lg">
-            <summary class="p-3 cursor-pointer font-medium hover:bg-gray-100 rounded-lg">忘记加密密码怎么办？</summary>
-            <div class="p-3 pt-0 text-sm text-gray-600">
-              加密密码无法找回，请妥善保管。如确实遗忘，只能重新格式化磁盘。
-            </div>
-          </details>
-          <details class="bg-gray-50 rounded-lg">
-            <summary class="p-3 cursor-pointer font-medium hover:bg-gray-100 rounded-lg">如何批量管理节点？</summary>
-            <div class="p-3 pt-0 text-sm text-gray-600">
-              可以创建节点分组，将同类节点归为一组，然后按分组授权给用户。
-            </div>
+          <details v-for="item in helpContent.faq.items" :key="item.q" class="bg-gray-50 rounded-lg">
+            <summary class="p-3 cursor-pointer font-medium hover:bg-gray-100 rounded-lg">{{ item.q }}</summary>
+            <div class="p-3 pt-0 text-sm text-gray-600">{{ item.a }}</div>
           </details>
         </div>
       </div>
 
-      <!-- 快捷键 -->
+      <!-- 快捷操作 -->
       <div>
-        <h4 class="font-bold text-lg mb-3 flex items-center gap-2">⌨️ 快捷操作</h4>
+        <h4 class="font-bold text-lg mb-3">{{ helpContent.shortcuts.title }}</h4>
         <div class="bg-gray-50 rounded-lg p-4 text-sm">
           <div class="grid grid-cols-2 gap-2">
-            <div><span class="bg-gray-200 px-2 py-1 rounded text-xs">双击图标</span> 打开应用</div>
-            <div><span class="bg-gray-200 px-2 py-1 rounded text-xs">点击任务栏</span> 切换窗口</div>
+            <div v-for="item in helpContent.shortcuts.items" :key="item.key">
+              <span class="bg-gray-200 px-2 py-1 rounded text-xs">{{ item.key }}</span> {{ item.action }}
+            </div>
           </div>
         </div>
       </div>
+
     </div>
     <div class="flex justify-end p-6 border-t">
       <button @click="showHelpDialog = false" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">关闭</button>
@@ -2473,10 +2632,72 @@
   </div>
 </div>
 
+    <!-- 个人信息对话框 -->
+<div v-if="showProfileDialog"
+     class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[2000]"
+     @click.self="showProfileDialog = false">
+  <div class="bg-white rounded-lg shadow-xl w-[500px]">
+    <div class="flex justify-between items-center p-6 border-b">
+      <h3 class="text-xl font-bold">👤 个人信息</h3>
+      <button @click="showProfileDialog = false" class="text-gray-500 hover:text-gray-700 text-2xl">×</button>
+    </div>
+
+    <div class="p-6">
+      <!-- 头像 -->
+      <div class="flex flex-col items-center mb-6">
+        <div class="relative">
+          <div class="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border-4 border-blue-500">
+            <img v-if="profileForm.avatar" :src="profileForm.avatar" class="w-full h-full object-cover">
+            <span v-else class="text-4xl">👤</span>
+          </div>
+          <label class="absolute bottom-0 right-0 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center cursor-pointer hover:bg-blue-600 transition">
+            <span class="text-white text-sm">📷</span>
+            <input type="file" accept="image/*" @change="handleAvatarUpload" class="hidden">
+          </label>
+        </div>
+        <div class="text-sm text-gray-500 mt-2">点击相机图标更换头像</div>
+      </div>
+
+      <!-- 用户名(不可编辑) -->
+      <div class="mb-4">
+        <label class="block text-sm font-semibold mb-2">用户名</label>
+        <input v-model="profileForm.username" type="text" disabled
+               class="w-full px-4 py-2 border rounded-lg bg-gray-100 text-gray-600">
+      </div>
+
+      <!-- 邮箱 -->
+      <div class="mb-4">
+        <label class="block text-sm font-semibold mb-2">邮箱</label>
+        <input v-model="profileForm.email" type="email" placeholder="请输入邮箱"
+               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+      </div>
+
+      <!-- 角色 -->
+      <div class="mb-4">
+        <label class="block text-sm font-semibold mb-2">角色</label>
+        <input :value="profileForm.role === 'admin' ? '管理员' : '普通用户'" type="text" disabled
+               class="w-full px-4 py-2 border rounded-lg bg-gray-100 text-gray-600">
+      </div>
+
+      <!-- 注册时间 -->
+      <div class="mb-4">
+        <label class="block text-sm font-semibold mb-2">注册时间</label>
+        <input :value="profileForm.created_at" type="text" disabled
+               class="w-full px-4 py-2 border rounded-lg bg-gray-100 text-gray-600">
+      </div>
+    </div>
+
+    <div class="flex justify-end gap-3 p-6 border-t">
+      <button @click="showProfileDialog = false" class="px-4 py-2 border rounded-lg hover:bg-gray-100">取消</button>
+      <button @click="saveProfile" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">保存</button>
+    </div>
+  </div>
+</div>
+
       </div></div>
 
 
-
+<script src="helpContent.js"></script>
   <script src="app.js"></script>
 
 </body>
