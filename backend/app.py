@@ -3120,24 +3120,30 @@ def proxy_to_node_page(node_id, subpath):  # 👈 改了函数名
 
         # 5. 转发请求
         try:
+            # 针对转换类接口增加超时时间
+            if 'convert-pdf' in subpath or 'preview' in subpath:
+                timeout = 120  # 2分钟
+            else:
+                timeout = 30
+
             if request.method == 'GET':
-                response = requests.get(target_url, headers=headers, timeout=30, stream=True)
+                response = requests.get(target_url, headers=headers, timeout=timeout, stream=True)
             elif request.method == 'POST':
                 response = requests.post(target_url,
                                          headers=headers,
                                          data=request.get_data(),
-                                         timeout=30,
+                                         timeout=timeout,
                                          stream=True)
             elif request.method == 'PUT':
                 response = requests.put(target_url,
                                         headers=headers,
                                         data=request.get_data(),
-                                        timeout=30,
+                                        timeout=timeout,
                                         stream=True)
             elif request.method == 'DELETE':
                 response = requests.delete(target_url,
                                            headers=headers,
-                                           timeout=30,
+                                           timeout=timeout,
                                            stream=True)
             else:
                 return jsonify({'error': '不支持的请求方法'}), 405
