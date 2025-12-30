@@ -34,6 +34,19 @@ profileForm: {
     avatar: '',
     created_at: ''
 },
+            // 桌面图标
+desktopIcons: JSON.parse(localStorage.getItem('adminDesktopIcons')) || [
+    { id: 'nodes', emoji: '🖥️', label: '节点管理', action: 'openNodeManagement', order: 0 },
+    { id: 'space', emoji: '📦', label: '空间分配', action: 'openSpaceAllocation', order: 1 },
+    { id: 'permission', emoji: '🔒', label: '权限设置', action: 'openPermissionSettings', order: 2 },
+    { id: 'encryption', emoji: '🔐', label: '加密管理', action: 'openEncryptionManager', order: 3 },
+    { id: 'ec', emoji: '🛡️', label: '纠删码配置', action: 'openECConfig', order: 4 },
+    { id: 'files', emoji: '📁', label: '文件管理', action: 'openFileManager', order: 5 },
+    { id: 'monitor', emoji: '📊', label: '系统监控', action: 'openSystemMonitor', order: 6 },
+],
+iconEditMode: false,
+draggedIcon: null,
+longPressTimer: null,
 
             // 节点分组相关
             showGroupDialog: false,
@@ -61,10 +74,29 @@ allUsersForWhitelist: [],
                 allowed_nodes: [],
                 denied_nodes: []
             },
-                desktopBackground: localStorage.getItem('desktopBackground') || '',
-            showBackgroundDialog: false,
-            backgroundUrl: '',
-            backgroundFile: null,
+
+            // 跨节点EC相关
+crossEcConfig: null,
+crossEcForm: {
+    k: 4,
+    m: 2,
+    selectedDisks: {}  // { nodeId: [disk1, disk2], ... }
+},
+            desktopBackground: localStorage.getItem('desktopBackground') || '',
+showBackgroundDialog: false,
+backgroundUrl: '',
+backgroundFile: null,
+
+bgPresets: [
+    { name: '紫罗兰', value: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
+    { name: '海洋', value: 'linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%)' },
+    { name: '日落', value: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' },
+    { name: '森林', value: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)' },
+    { name: '暖阳', value: 'linear-gradient(135deg, #f2994a 0%, #f2c94c 100%)' },
+    { name: '深空', value: 'linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)' },
+    { name: '玫瑰', value: 'linear-gradient(135deg, #ee9ca7 0%, #ffdde1 100%)' },
+    { name: '极光', value: 'linear-gradient(135deg, #43cea2 0%, #185a9d 100%)' },
+],
             // 关于和帮助
             showAboutDialog: false,
             showHelpDialog: false
@@ -233,7 +265,178 @@ async renameNode(window, node) {
             this.loadNodesData(window);
         },
 
-        // nascenter/frontend/app.js
+
+// ========== 跨节点EC方法 ==========
+countSelectedCrossDisks(window) {
+    let count = 0;
+    for (let nodeId in window.crossEcForm.selectedDisks) {
+        count += window.crossEcForm.selectedDisks[nodeId].length;
+    }
+    return count;
+},
+
+getNodeSelectedDisks(window, nodeId) {
+    return window.crossEcForm.selectedDisks[nodeId] || [];
+},
+
+getNodeName(window, nodeId) {
+    const node = (window.allNodes || []).find(n => n.id === nodeId);
+    return node ? node.name : nodeId;
+},
+
+async selectNodeForCrossEc(window, node) {
+    window.selectedCrossEcNode = node;
+    window.crossEcLoading = true;
+    try {
+        const res = await this.proxyRequest(node.id, '/api/disks');
+        window.crossEcNodeDisks = res.data.filter(d =>
+            d.mount && !['C:/', 'D:/', '/'].includes(d.mount.toUpperCase().replace('\\', '/'))
+        );
+    } catch (e) {
+        window.crossEcNodeDisks = [];
+    }
+    window.crossEcLoading = false;
+},
+
+isDiskSelectedForCrossEc(window, nodeId, disk) {
+    return (window.crossEcForm.selectedDisks[nodeId] || []).includes(disk);
+},
+
+toggleDiskForCrossEc(window, nodeId, disk) {
+    if (!window.crossEcForm.selectedDisks[nodeId]) {
+        window.crossEcForm.selectedDisks[nodeId] = [];
+    }
+    const idx = window.crossEcForm.selectedDisks[nodeId].indexOf(disk);
+    if (idx >= 0) {
+        window.crossEcForm.selectedDisks[nodeId].splice(idx, 1);
+        if (window.crossEcForm.selectedDisks[nodeId].length === 0) {
+            delete window.crossEcForm.selectedDisks[nodeId];
+        }
+    } else {
+        window.crossEcForm.selectedDisks[nodeId].push(disk);
+    }
+    // 触发响应式更新
+    window.crossEcForm.selectedDisks = { ...window.crossEcForm.selectedDisks };
+},
+
+toggleAllDisksForNode(window, nodeId) {
+    const allDisks = (window.crossEcNodeDisks || []).map(d => d.mount);
+    const selected = window.crossEcForm.selectedDisks[nodeId] || [];
+    if (selected.length === allDisks.length) {
+        delete window.crossEcForm.selectedDisks[nodeId];
+    } else {
+        window.crossEcForm.selectedDisks[nodeId] = [...allDisks];
+    }
+    window.crossEcForm.selectedDisks = { ...window.crossEcForm.selectedDisks };
+},
+
+async saveCrossEcConfig(window) {
+    const nodes = [];
+    for (let nodeId in window.crossEcForm.selectedDisks) {
+        const node = (window.allNodes || []).find(n => n.id === nodeId);
+        nodes.push({
+            nodeId,
+            nodeName: node?.name || nodeId,
+            ip: node?.ip || '',
+            disks: window.crossEcForm.selectedDisks[nodeId]
+        });
+    }
+
+    window.crossEcConfig = {
+        k: window.crossEcForm.k,
+        m: window.crossEcForm.m,
+        nodes,
+        totalDisks: this.countSelectedCrossDisks(window),
+        createdAt: new Date().toISOString()
+    };
+
+    // 保存到localStorage或后端
+    localStorage.setItem('crossEcConfig', JSON.stringify(window.crossEcConfig));
+    alert('跨节点EC配置已保存！');
+},
+
+deleteCrossEcConfig(window) {
+    if (confirm('确定删除跨节点EC配置？')) {
+        window.crossEcConfig = null;
+        localStorage.removeItem('crossEcConfig');
+    }
+},
+
+// ========== 单节点EC方法 ==========
+async selectNodeForSingleEc(window, node) {
+    window.selectedSingleEcNode = node;
+    window.singleEcLoading = true;
+    window.singleEcConfig = null;
+    window.singleEcForm = { k: 4, m: 2, disks: [] };
+
+    try {
+        // 获取节点EC配置
+        const cfgRes = await this.proxyRequest(node.id, '/api/ec_config');
+        if (cfgRes.data && cfgRes.data.scheme) {
+            window.singleEcConfig = cfgRes.data;
+        }
+        // 获取磁盘列表
+        const diskRes = await this.proxyRequest(node.id, '/api/disks');
+        window.singleEcNodeDisks = diskRes.data.filter(d =>
+            d.mount && !['C:/', 'D:/', '/'].includes(d.mount.toUpperCase().replace('\\', '/'))
+        );
+    } catch (e) {
+        window.singleEcNodeDisks = [];
+    }
+    window.singleEcLoading = false;
+},
+
+async saveSingleEcConfig(window) {
+    try {
+        await this.proxyRequest(window.selectedSingleEcNode.id, '/api/ec_config', 'POST', {
+            scheme: 'rs',
+            k: window.singleEcForm.k,
+            m: window.singleEcForm.m,
+            disks: window.singleEcForm.disks
+        });
+        alert('EC配置已保存！');
+        this.selectNodeForSingleEc(window, window.selectedSingleEcNode);
+    } catch (e) {
+        alert('保存失败: ' + e.message);
+    }
+},
+
+async deleteSingleEcConfig(window) {
+    if (!confirm('确定删除该节点的EC配置？')) return;
+    try {
+        await this.proxyRequest(window.selectedSingleEcNode.id, '/api/ec_config', 'DELETE');
+        window.singleEcConfig = null;
+    } catch (e) {
+        alert('删除失败: ' + e.message);
+    }
+},
+
+// ========== EC上传方法 ==========
+handleEcFileDrop(e) {
+    const files = Array.from(e.dataTransfer.files);
+    // 找到当前EC窗口
+    const ecWindow = this.windows.find(w => w.type === 'ec-config');
+    if (ecWindow) {
+        ecWindow.ecUploadFiles = ecWindow.ecUploadFiles || [];
+        ecWindow.ecUploadFiles.push(...files);
+    }
+},
+
+handleEcFileSelect(e) {
+    const files = Array.from(e.target.files);
+    const ecWindow = this.windows.find(w => w.type === 'ec-config');
+    if (ecWindow) {
+        ecWindow.ecUploadFiles = ecWindow.ecUploadFiles || [];
+        ecWindow.ecUploadFiles.push(...files);
+    }
+},
+
+async startEcUpload(window) {
+    if (!window.uploadTargetEc || !window.ecUploadFiles?.length) return;
+
+    alert('上传功能开发中...\n将上传 ' + window.ecUploadFiles.length + ' 个文件到EC池');
+    // TODO: 实现实际上传逻辑
+},
 
 
 
@@ -797,38 +1000,62 @@ async saveSecret() {
 },
 
     // ============ 纠删码配置 ============
-    openECConfig() {
-    const existing = this.windows.find(w => w.type === 'ec-config');
-    if (existing) {
-        this.focusWindow(existing.id);
-        this.showStartMenu = false;
+  openECConfig() {
+    const existingWindow = this.windows.find(w => w.type === 'ec-config');
+    if (existingWindow) {
+        this.focusWindow(existingWindow);
         return;
     }
 
-    const win = this.createWindow({
+    // 加载保存的跨节点EC配置
+    let crossEcConfig = null;
+    try {
+        crossEcConfig = JSON.parse(localStorage.getItem('crossEcConfig'));
+    } catch (e) {}
+
+    const win = {
+        id: Date.now(),
         type: 'ec-config',
-        title: '纠删码配置',
-        icon: '🛡️',
-        width: 1000,
+        title: '🛡️ 纠删码配置',
+        width: 1100,
         height: 700,
-        currentTab: 'config',  // 'config', 'status', 'recovery'
-        ecConfig: null,
-        capacity: null,
-        availableDisks: [],
-        nodes: [],           // 👈 新增
-        selectedNodeId: '',  // 👈 新增
-        loading: true,
+        x: 150,
+        y: 80,
+        zIndex: this.nextZIndex++,
+        isMaximized: false,
+        ecTab: 'cross-node',
+        allNodes: [],  // 先设为空，后面加载
+        // 跨节点EC
+        crossEcConfig,
+        crossEcForm: { k: 4, m: 2, selectedDisks: {} },
+        selectedCrossEcNode: null,
+        crossEcNodeDisks: [],
+        crossEcLoading: false,
+        // 单节点EC
+        selectedSingleEcNode: null,
+        singleEcConfig: null,
+        singleEcForm: { k: 4, m: 2, disks: [] },
+        singleEcNodeDisks: [],
+        singleEcLoading: false,
+        // 上传
+        uploadTargetEc: '',
+        ecUploadFiles: []
+    };
 
-        // 配置表单
-        configForm: {
-            k: 4,
-            m: 2,
-            disks: []
-        }
-    });
+    this.windows.push(win);
 
-    this.loadECConfig(win);
-    this.showStartMenu = false;
+    // 加载节点数据
+    this.loadNodesForECConfig(win);
+},
+
+async loadNodesForECConfig(win) {
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes`);
+        win.allNodes = res.data || [];
+    } catch (e) {
+        console.error('加载节点失败', e);
+        win.allNodes = [];
+    }
 },
 
 async loadECConfig(win) {
@@ -864,6 +1091,8 @@ async loadECConfig(win) {
         win.loading = false;
     }
 },
+
+
 
 // 如果没有选中节点,不能保存配置
 async saveECConfig(win) {
@@ -1038,6 +1267,249 @@ refreshNodeMonitorStats() {
         }
     },
 
+
+
+
+    // ========== 文件管理 ==========
+openFileManager() {
+    const existing = this.windows.find(w => w.type === 'file-manager');
+    if (existing) {
+        this.focusWindow(existing);
+        return;
+    }
+
+    const win = {
+        id: Date.now(),
+        type: 'file-manager',
+        title: '📁 文件管理',
+        width: 1000,
+        height: 600,
+        x: 120,
+        y: 60,
+        zIndex: this.nextZIndex++,
+        isMaximized: false,
+        // 数据
+        fmNodes: [],
+        fmDisks: [],
+        fmFiles: [],
+        selectedFmNode: null,
+        selectedFmDisk: null,
+        currentPath: '',
+        selectedFiles: [],
+        // 加载状态
+        fmDisksLoading: false,
+        fmFilesLoading: false
+    };
+
+    this.windows.push(win);
+    this.loadFmNodes(win);
+},
+
+async loadFmNodes(win) {
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes`);
+        win.fmNodes = res.data || [];
+    } catch (e) {
+        console.error('加载节点失败', e);
+        win.fmNodes = [];
+    }
+},
+
+async selectFmNode(win, node) {
+    win.selectedFmNode = node;
+    win.selectedFmDisk = null;
+    win.currentPath = '';
+    win.fmFiles = [];
+    win.selectedFiles = [];
+    win.fmDisksLoading = true;
+
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/disks`);
+        win.fmDisks = (res.data || []).filter(d =>
+            d.mount && !['C:/', '/'].includes(d.mount.toUpperCase().replace('\\', '/'))
+        );
+    } catch (e) {
+        console.error('加载磁盘失败', e);
+        win.fmDisks = [];
+    }
+    win.fmDisksLoading = false;
+},
+
+async selectFmDisk(win, disk) {
+    win.selectedFmDisk = disk;
+    win.currentPath = '';
+    win.selectedFiles = [];
+    await this.loadFmFiles(win);
+},
+
+async loadFmFiles(win) {
+    if (!win.selectedFmNode || !win.selectedFmDisk) return;
+
+    win.fmFilesLoading = true;
+    win.fmFiles = [];
+
+    try {
+        const path = win.currentPath || '';
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/files`, {
+            params: { disk: win.selectedFmDisk, path }
+        });
+        win.fmFiles = res.data || [];
+    } catch (e) {
+        console.error('加载文件失败', e);
+        win.fmFiles = [];
+    }
+    win.fmFilesLoading = false;
+},
+
+async refreshFileList(win) {
+    await this.loadFmFiles(win);
+},
+
+openFileOrFolder(win, file) {
+    if (file.is_dir) {
+        win.currentPath = win.currentPath ? `${win.currentPath}/${file.name}` : file.name;
+        win.selectedFiles = [];
+        this.loadFmFiles(win);
+    } else {
+        // 双击文件 - 可以预览或下载
+        this.downloadFile(win, file);
+    }
+},
+
+goUpFolder(win) {
+    if (!win.currentPath) return;
+    const parts = win.currentPath.split('/');
+    parts.pop();
+    win.currentPath = parts.join('/');
+    win.selectedFiles = [];
+    this.loadFmFiles(win);
+},
+
+toggleFileSelect(win, file) {
+    if (!win.selectedFiles) win.selectedFiles = [];
+    const idx = win.selectedFiles.indexOf(file.name);
+    if (idx >= 0) {
+        win.selectedFiles.splice(idx, 1);
+    } else {
+        win.selectedFiles.push(file.name);
+    }
+},
+
+getFileIcon(filename) {
+    const ext = filename.split('.').pop()?.toLowerCase();
+    const icons = {
+        'pdf': '📕', 'doc': '📘', 'docx': '📘', 'xls': '📗', 'xlsx': '📗',
+        'ppt': '📙', 'pptx': '📙', 'txt': '📄', 'md': '📝',
+        'jpg': '🖼️', 'jpeg': '🖼️', 'png': '🖼️', 'gif': '🖼️', 'webp': '🖼️',
+        'mp4': '🎬', 'avi': '🎬', 'mkv': '🎬', 'mov': '🎬',
+        'mp3': '🎵', 'wav': '🎵', 'flac': '🎵',
+        'zip': '📦', 'rar': '📦', '7z': '📦', 'tar': '📦', 'gz': '📦',
+        'js': '📜', 'py': '🐍', 'html': '🌐', 'css': '🎨', 'json': '📋'
+    };
+    return icons[ext] || '📄';
+},
+
+formatDate(timestamp) {
+    if (!timestamp) return '';
+    const d = new Date(timestamp * 1000);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString().slice(0, 5);
+},
+
+async handleFmUpload(event, win) {
+    const files = event.target.files;
+    if (!files.length || !win.selectedFmNode || !win.selectedFmDisk) {
+        alert('请先选择目标节点和磁盘');
+        return;
+    }
+
+    const formData = new FormData();
+    for (let f of files) {
+        formData.append('files', f);
+    }
+    formData.append('disk', win.selectedFmDisk);
+    formData.append('path', win.currentPath || '');
+
+    try {
+        await axios.post(
+            `${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/upload`,
+            formData,
+            { headers: { 'Content-Type': 'multipart/form-data' } }
+        );
+        alert('上传成功！');
+        this.loadFmFiles(win);
+    } catch (e) {
+        alert('上传失败: ' + (e.response?.data?.error || e.message));
+    }
+    event.target.value = '';
+},
+
+async createFolder(win) {
+    if (!win.selectedFmNode || !win.selectedFmDisk) {
+        alert('请先选择节点和磁盘');
+        return;
+    }
+    const name = prompt('请输入文件夹名称:');
+    if (!name) return;
+
+    try {
+        await axios.post(`${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/mkdir`, {
+            disk: win.selectedFmDisk,
+            path: win.currentPath ? `${win.currentPath}/${name}` : name
+        });
+        this.loadFmFiles(win);
+    } catch (e) {
+        alert('创建失败: ' + (e.response?.data?.error || e.message));
+    }
+},
+
+async downloadFile(win, file) {
+    const url = `${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/download?disk=${encodeURIComponent(win.selectedFmDisk)}&path=${encodeURIComponent(win.currentPath ? `${win.currentPath}/${file.name}` : file.name)}`;
+    window.open(url, '_blank');
+},
+
+async downloadSelected(win) {
+    for (let name of win.selectedFiles) {
+        const file = win.fmFiles.find(f => f.name === name);
+        if (file && !file.is_dir) {
+            await this.downloadFile(win, file);
+        }
+    }
+},
+
+async deleteFile(win, file) {
+    if (!confirm(`确定删除 "${file.name}" 吗？`)) return;
+
+    try {
+        await axios.delete(`${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/file`, {
+            data: {
+                disk: win.selectedFmDisk,
+                path: win.currentPath ? `${win.currentPath}/${file.name}` : file.name
+            }
+        });
+        this.loadFmFiles(win);
+    } catch (e) {
+        alert('删除失败: ' + (e.response?.data?.error || e.message));
+    }
+},
+
+async deleteSelected(win) {
+    if (!confirm(`确定删除选中的 ${win.selectedFiles.length} 项吗？`)) return;
+
+    for (let name of win.selectedFiles) {
+        try {
+            await axios.delete(`${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/file`, {
+                data: {
+                    disk: win.selectedFmDisk,
+                    path: win.currentPath ? `${win.currentPath}/${name}` : name
+                }
+            });
+        } catch (e) {
+            console.error('删除失败', name, e);
+        }
+    }
+    win.selectedFiles = [];
+    this.loadFmFiles(win);
+},
 // [新] 创建文件夹 (调用我们的新网关API)
     async mkdirInFileExplorer(window) {
         const folderName = prompt("请输入新文件夹名称:");
@@ -1173,6 +1645,89 @@ refreshNodeMonitorStats() {
             window.loading = false;
         }
     },
+
+
+    // ========== 桌面图标拖拽 ==========
+handleIconDblClick(icon) {
+    if (this.iconEditMode) return;
+    if (icon.action && typeof this[icon.action] === 'function') {
+        this[icon.action]();
+    }
+},
+
+startLongPress(icon) {
+    this.cancelLongPress();
+    this.longPressTimer = setTimeout(() => {
+        this.iconEditMode = true;
+    }, 500);
+},
+
+cancelLongPress() {
+    if (this.longPressTimer) {
+        clearTimeout(this.longPressTimer);
+        this.longPressTimer = null;
+    }
+},
+
+exitIconEditMode() {
+    if (this.iconEditMode) {
+        this.iconEditMode = false;
+        this.saveIconLayout();
+    }
+},
+
+onIconDragStart(event, icon) {
+    if (!this.iconEditMode) {
+        event.preventDefault();
+        return;
+    }
+    this.draggedIcon = icon.id;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', icon.id);
+},
+
+onIconDragEnd() {
+    this.draggedIcon = null;
+},
+
+onIconDragOver(event, icon) {
+    if (!this.iconEditMode || this.draggedIcon === icon.id) return;
+    event.preventDefault();
+},
+
+onIconDrop(event, targetIcon) {
+    if (!this.iconEditMode) return;
+    event.preventDefault();
+
+    const draggedId = event.dataTransfer.getData('text/plain');
+    if (draggedId === targetIcon.id) return;
+
+    const draggedIndex = this.desktopIcons.findIndex(i => i.id === draggedId);
+    const targetIndex = this.desktopIcons.findIndex(i => i.id === targetIcon.id);
+
+    if (draggedIndex < 0 || targetIndex < 0) return;
+
+    // 交换顺序
+    const draggedOrder = this.desktopIcons[draggedIndex].order;
+    this.desktopIcons[draggedIndex].order = this.desktopIcons[targetIndex].order;
+    this.desktopIcons[targetIndex].order = draggedOrder;
+
+    // 重新排序数组
+    this.desktopIcons.sort((a, b) => a.order - b.order);
+
+    // 重置order值
+    this.desktopIcons.forEach((icon, idx) => {
+        icon.order = idx;
+    });
+
+    this.saveIconLayout();
+    this.draggedIcon = null;
+},
+
+saveIconLayout() {
+    localStorage.setItem('adminDesktopIcons', JSON.stringify(this.desktopIcons));
+},
+
 
 
     async createUser(window) {
