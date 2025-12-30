@@ -2991,6 +2991,48 @@ def _cleanup_old_ngrok():
         pass
 
 
+@app.route('/api/change_password', methods=['POST'])
+def api_change_password():
+    """用户修改密码"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        old_password = data.get('old_password')
+        new_password = data.get('new_password')
+
+        secret = request.headers.get('X-NAS-Secret')
+        if secret != NAS_SHARED_SECRET:
+            if 'user_id' not in session:
+                return jsonify({'error': '未授权'}), 401
+            user_id = session['user_id']
+
+        if not old_password or not new_password:
+            return jsonify({'error': '请提供旧密码和新密码'}), 400
+
+        if len(new_password) < 6:
+            return jsonify({'error': '新密码长度至少6位'}), 400
+
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        user = cursor.fetchone()
+
+        if not user:
+            return jsonify({'error': '用户不存在'}), 404
+
+        # 直接比较明文密码
+        if user['password_hash'] != old_password:
+            return jsonify({'error': '旧密码错误'}), 400
+
+        # 直接存明文
+        cursor.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_password, user_id))
+        db.commit()
+
+        return jsonify({'success': True, 'message': '密码修改成功'})
+
+    except Exception as e:
+        print(f"[ERROR] change_password: {e}")
+        return jsonify({'error': f'服务器错误: {str(e)}'}), 500
 # ========== 新增:代理页面访问路由 ==========
 @app.route('/api/verify-access-token', methods=['POST'])
 def verify_access_token():
