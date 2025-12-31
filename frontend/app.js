@@ -24,6 +24,11 @@ createApp({
             currentUser: null,  // 当前登录用户
             showUserMenu: false, // 用户菜单显示状态
             helpContent: helpContent,
+            excludedDrives: ['C:', 'D:', 'c:', 'd:', '/c', '/d', 'C', 'D'],
+            // 跨节点池对话框
+showCreatePoolDialog: false,
+poolForm: { name: '', display_name: '', strategy: 'space_first', disks: [] },
+poolEditMode: false,
 
             // 个人信息
 showProfileDialog: false,
@@ -284,18 +289,19 @@ getNodeName(window, nodeId) {
     return node ? node.name : nodeId;
 },
 
-async selectNodeForCrossEc(window, node) {
-    window.selectedCrossEcNode = node;
-    window.crossEcLoading = true;
+async selectNodeForCrossEc(win, node) {
+    win.selectedCrossEcNode = node;
+    win.crossEcLoading = true;
     try {
-        const res = await this.proxyRequest(node.id, '/api/disks');
-        window.crossEcNodeDisks = res.data.filter(d =>
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/disks`);
+        win.crossEcNodeDisks = (res.data.disks || res.data || []).filter(d =>
             d.mount && !['C:/', 'D:/', '/'].includes(d.mount.toUpperCase().replace('\\', '/'))
         );
     } catch (e) {
-        window.crossEcNodeDisks = [];
+        console.error('获取磁盘失败:', e);
+        win.crossEcNodeDisks = [];
     }
-    window.crossEcLoading = false;
+    win.crossEcLoading = false;
 },
 
 isDiskSelectedForCrossEc(window, nodeId, disk) {
@@ -342,75 +348,113 @@ async saveCrossEcConfig(window) {
         });
     }
 
-    window.crossEcConfig = {
-        k: window.crossEcForm.k,
-        m: window.crossEcForm.m,
-        nodes,
-        totalDisks: this.countSelectedCrossDisks(window),
-        createdAt: new Date().toISOString()
-    };
+    if (nodes.length < 2) {
+        alert('跨节点EC至少需要选择2个节点');
+        return;
+    }
 
-    // 保存到localStorage或后端
-    localStorage.setItem('crossEcConfig', JSON.stringify(window.crossEcConfig));
-    alert('跨节点EC配置已保存！');
-},
+    const totalDisks = this.countSelectedCrossDisks(window);
+    if (totalDisks < window.crossEcForm.k + window.crossEcForm.m) {
+        alert(`总磁盘数(${totalDisks})必须 >= k+m(${window.crossEcForm.k + window.crossEcForm.m})`);
+        return;
+    }
 
-deleteCrossEcConfig(window) {
-    if (confirm('确定删除跨节点EC配置？')) {
-        window.crossEcConfig = null;
-        localStorage.removeItem('crossEcConfig');
+    try {
+        const res = await axios.post('/api/cross_ec_config', {
+            k: window.crossEcForm.k,
+            m: window.crossEcForm.m,
+            nodes
+        });
+
+        if (res.data.success) {
+            window.crossEcConfig = {
+                k: window.crossEcForm.k,
+                m: window.crossEcForm.m,
+                nodes,
+                totalDisks,
+                createdAt: new Date().toISOString()
+            };
+            alert('跨节点EC配置已保存！');
+        } else {
+            alert(res.data.error || '保存失败');
+        }
+    } catch (e) {
+        alert('保存失败: ' + (e.response?.data?.error || e.message));
     }
 },
+        async loadCrossEcConfig(window) {
+    try {
+        const res = await axios.get('/api/cross_ec_config');
+        if (res.data.success && res.data.config) {
+            window.crossEcConfig = res.data.config;
+        }
+    } catch (e) {
+        console.error('加载跨节点EC配置失败:', e);
+    }
+},
+async deleteCrossEcConfig(window) {
+    if (!confirm('确定删除跨节点EC配置？')) return;
 
+    try {
+        const res = await axios.delete('/api/cross_ec_config');
+        if (res.data.success) {
+            window.crossEcConfig = null;
+            alert('配置已删除');
+        }
+    } catch (e) {
+        alert('删除失败: ' + (e.response?.data?.error || e.message));
+    }
+},
 // ========== 单节点EC方法 ==========
-async selectNodeForSingleEc(window, node) {
-    window.selectedSingleEcNode = node;
-    window.singleEcLoading = true;
-    window.singleEcConfig = null;
-    window.singleEcForm = { k: 4, m: 2, disks: [] };
+async selectNodeForSingleEc(win, node) {
+    win.selectedSingleEcNode = node;
+    win.singleEcLoading = true;
+    win.singleEcConfig = null;
+    win.singleEcForm = { k: 4, m: 2, disks: [] };
 
     try {
         // 获取节点EC配置
-        const cfgRes = await this.proxyRequest(node.id, '/api/ec_config');
+        const cfgRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/ec_config`);
         if (cfgRes.data && cfgRes.data.scheme) {
-            window.singleEcConfig = cfgRes.data;
+            win.singleEcConfig = cfgRes.data;
         }
         // 获取磁盘列表
-        const diskRes = await this.proxyRequest(node.id, '/api/disks');
-        window.singleEcNodeDisks = diskRes.data.filter(d =>
+        const diskRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/disks`);
+        win.singleEcNodeDisks = (diskRes.data.disks || diskRes.data || []).filter(d =>
             d.mount && !['C:/', 'D:/', '/'].includes(d.mount.toUpperCase().replace('\\', '/'))
         );
     } catch (e) {
-        window.singleEcNodeDisks = [];
+        console.error('获取节点配置失败:', e);
+        win.singleEcNodeDisks = [];
     }
-    window.singleEcLoading = false;
+    win.singleEcLoading = false;
 },
 
-async saveSingleEcConfig(window) {
+async saveSingleEcConfig(win) {
     try {
-        await this.proxyRequest(window.selectedSingleEcNode.id, '/api/ec_config', 'POST', {
+        await axios.post(`${this.apiBaseUrl}/api/nodes/${win.selectedSingleEcNode.id}/ec_config`, {
             scheme: 'rs',
-            k: window.singleEcForm.k,
-            m: window.singleEcForm.m,
-            disks: window.singleEcForm.disks
+            k: win.singleEcForm.k,
+            m: win.singleEcForm.m,
+            disks: win.singleEcForm.disks
         });
         alert('EC配置已保存！');
-        this.selectNodeForSingleEc(window, window.selectedSingleEcNode);
+        this.selectNodeForSingleEc(win, win.selectedSingleEcNode);
     } catch (e) {
-        alert('保存失败: ' + e.message);
+        alert('保存失败: ' + (e.response?.data?.error || e.message));
     }
 },
 
-async deleteSingleEcConfig(window) {
+async deleteSingleEcConfig(win) {
     if (!confirm('确定删除该节点的EC配置？')) return;
     try {
-        await this.proxyRequest(window.selectedSingleEcNode.id, '/api/ec_config', 'DELETE');
-        window.singleEcConfig = null;
+        await axios.delete(`${this.apiBaseUrl}/api/nodes/${win.selectedSingleEcNode.id}/ec_config`);
+        win.singleEcConfig = null;
+        alert('配置已删除');
     } catch (e) {
-        alert('删除失败: ' + e.message);
+        alert('删除失败: ' + (e.response?.data?.error || e.message));
     }
 },
-
 // ========== EC上传方法 ==========
 handleEcFileDrop(e) {
     const files = Array.from(e.dataTransfer.files);
@@ -600,6 +644,7 @@ async deleteNode(window, node) {
 
 
 // ============ 空间分配 ============
+// ============ 空间分配 ============
 openSpaceAllocation() {
     const win = this.createWindow({
         type: 'space-allocation',
@@ -623,11 +668,22 @@ openSpaceAllocation() {
         volumeEditMode: false,
         // 添加磁盘
         showAddDiskDialog: false,
-        selectedNewDisk: null
+        selectedNewDisk: null,
+        // ===== 跨节点池相关 =====
+        crossPools: [],
+        crossPoolsLoading: false,
+        selectedCrossPool: null,
+        showCreatePoolDialog: false,
+        poolForm: { name: '', display_name: '', strategy: 'space_first', disks: [] },
+        poolEditMode: false,
+        // 选择磁盘
+        selectedNodeForDisk: null,
+        nodeDisksLoading: false,
+        nodeDisks: []
     });
     this.loadNodesForSpaceAllocation(win);
+    this.loadCrossPools(win);
 },
-
 // 加载节点列表
 async loadNodesForSpaceAllocation(win) {
     try {
@@ -639,6 +695,159 @@ async loadNodesForSpaceAllocation(win) {
     }
 },
 
+
+// ========== 跨节点池管理 ==========
+
+// 加载跨节点池列表
+async loadCrossPools(win) {
+    win.crossPoolsLoading = true;
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/cross-pools`);
+        win.crossPools = res.data || [];
+    } catch (e) {
+        console.error('加载跨节点池失败', e);
+        win.crossPools = [];
+    }
+    win.crossPoolsLoading = false;
+},
+
+// 打开创建池对话框
+openCreatePoolDialog(win) {
+    win.poolForm = { name: '', display_name: '', strategy: 'space_first', disks: [] };
+    win.poolEditMode = false;
+    win.selectedNodeForDisk = null;
+    win.nodeDisks = [];
+    win.showCreatePoolDialog = true;
+},
+
+// 打开编辑池对话框
+openEditPoolDialog(win, pool) {
+    win.poolForm = {
+        id: pool.id,
+        name: pool.name,
+        display_name: pool.display_name,
+        strategy: pool.strategy,
+        disks: pool.disks || []
+    };
+    win.poolEditMode = true;
+    win.selectedNodeForDisk = null;
+    win.nodeDisks = [];
+    win.showCreatePoolDialog = true;
+},
+
+// 保存跨节点池
+async saveCrossPool(win) {
+    const form = win.poolForm;
+    if (!form.name || !form.name.trim()) {
+        alert('请输入池名称');
+        return;
+    }
+    if (!form.disks || form.disks.length === 0) {
+        alert('请至少添加一个磁盘');
+        return;
+    }
+
+    try {
+        if (win.poolEditMode) {
+            await axios.put(`${this.apiBaseUrl}/api/cross-pools/${form.id}`, {
+                display_name: form.display_name,
+                strategy: form.strategy,
+                disks: form.disks
+            });
+            alert('更新成功');
+        } else {
+            await axios.post(`${this.apiBaseUrl}/api/cross-pools`, form);
+            alert('创建成功');
+        }
+        win.showCreatePoolDialog = false;
+        this.loadCrossPools(win);
+    } catch (e) {
+        alert('操作失败: ' + (e.response?.data?.error || e.message));
+    }
+},
+
+// 删除跨节点池
+async deleteCrossPool(win, pool) {
+    if (!confirm(`确定要删除跨节点池 "${pool.display_name || pool.name}" 吗？`)) return;
+    try {
+        await axios.delete(`${this.apiBaseUrl}/api/cross-pools/${pool.id}`);
+        alert('删除成功');
+        if (win.selectedCrossPool?.id === pool.id) {
+            win.selectedCrossPool = null;
+        }
+        this.loadCrossPools(win);
+    } catch (e) {
+        alert('删除失败: ' + (e.response?.data?.error || e.message));
+    }
+},
+
+// 选择跨节点池查看详情
+async selectCrossPool(win, pool) {
+    win.selectedCrossPool = pool;
+    // 可以在这里加载池的统计信息
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/cross-pools/${pool.id}/stats`);
+        win.selectedCrossPool.stats = res.data;
+    } catch (e) {
+        console.error('加载池统计失败', e);
+    }
+},
+
+// 选择节点加载其磁盘
+async selectNodeForDiskSelection(win, node) {
+    win.selectedNodeForDisk = node;
+    win.nodeDisksLoading = true;
+    win.nodeDisks = [];
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/disks`);
+        win.nodeDisks = res.data?.disks || res.data || [];
+    } catch (e) {
+        console.error('加载节点磁盘失败', e);
+        win.nodeDisks = [];
+    }
+    win.nodeDisksLoading = false;
+},
+
+// 切换磁盘选择
+toggleDiskSelection(win, node, disk) {
+    const diskKey = `${node.id}:${disk.mount}`;
+    const existing = win.poolForm.disks.findIndex(d => d.nodeId === node.id && d.disk === disk.mount);
+
+    if (existing >= 0) {
+        win.poolForm.disks.splice(existing, 1);
+    } else {
+        win.poolForm.disks.push({
+            nodeId: node.id,
+            nodeName: node.name,
+            nodeIp: node.ip,
+            nodePort: node.port,
+            disk: disk.mount,
+            total: disk.total_gb,
+            free: disk.free_gb
+        });
+    }
+},
+
+// 检查磁盘是否已选择
+isDiskSelected(win, nodeId, diskMount) {
+    return win.poolForm.disks.some(d => d.nodeId === nodeId && d.disk === diskMount);
+},
+
+// 从已选列表移除磁盘
+removeDiskFromSelection(win, index) {
+    win.poolForm.disks.splice(index, 1);
+},
+
+// 获取策略显示名称
+getStrategyName(strategy) {
+    const map = {
+        'space_first': '空间优先',
+        'round_robin': '轮询',
+        'node_spread': '节点优先轮询',
+        'fill': '填充模式'
+    };
+    return map[strategy] || strategy;
+},
 // 选择节点查看存储池
 async selectNodeForPool(win, node) {
     win.selectedPoolNode = node;
@@ -1007,12 +1216,6 @@ async saveSecret() {
         return;
     }
 
-    // 加载保存的跨节点EC配置
-    let crossEcConfig = null;
-    try {
-        crossEcConfig = JSON.parse(localStorage.getItem('crossEcConfig'));
-    } catch (e) {}
-
     const win = {
         id: Date.now(),
         type: 'ec-config',
@@ -1024,9 +1227,9 @@ async saveSecret() {
         zIndex: this.nextZIndex++,
         isMaximized: false,
         ecTab: 'cross-node',
-        allNodes: [],  // 先设为空，后面加载
+        allNodes: [],
         // 跨节点EC
-        crossEcConfig,
+        crossEcConfig: null,
         crossEcForm: { k: 4, m: 2, selectedDisks: {} },
         selectedCrossEcNode: null,
         crossEcNodeDisks: [],
@@ -1046,6 +1249,8 @@ async saveSecret() {
 
     // 加载节点数据
     this.loadNodesForECConfig(win);
+    // 加载跨节点EC配置
+    this.loadCrossEcConfig(win);
 },
 
 async loadNodesForECConfig(win) {
@@ -1232,38 +1437,17 @@ refreshNodeMonitorStats() {
         window.error = null;
         window.currentPath = path;
         try {
-            // 调用 app.py 中新的 /api/files/.../list 接口
+            // 调用 oldapp.py 中新的 /api/files/.../list 接口
             const res = await axios.get(`${this.apiBaseUrl}/api/files/${window.selectedNodeId}/list`, {
                 params: {path: path}
             });
             window.files = res.data.files;
         } catch (error) {
             console.error("加载文件列表失败:", error);
-            // 这将显示来自 app.py 的 "权限不足" 错误
+            // 这将显示来自 oldapp.py 的 "权限不足" 错误
             window.error = error.response?.data?.message || "加载文件列表失败";
         } finally {
             window.loading = false;
-        }
-    },
-
-// [新] 删除文件 (调用我们的新网关API)
-    async deleteFile(window, file) {
-        // 拼接完整路径
-        const path = (window.currentPath === '/' ? '' : window.currentPath) + '/' + file.name;
-
-        if (!confirm(`确定要删除 ${path} 吗？\n\n此操作将根据您的 '完全控制' 权限 来决定是否成功。`)) return;
-
-        try {
-            // 调用 app.py 中新的 /api/files/.../delete 接口
-            await axios.post(`${this.apiBaseUrl}/api/files/${window.selectedNodeId}/delete`, {
-                path: path
-            });
-            alert('删除成功');
-            await this.loadFiles(window, window.currentPath); // 刷新
-        } catch (error) {
-            console.error("删除失败:", error);
-            // 显示 "权限不足"
-            alert('删除失败: ' + (error.response?.data?.message || error.message));
         }
     },
 
@@ -1279,6 +1463,8 @@ openFileManager() {
     }
 
     const win = {
+        showPreview: false,
+        previewFile: null,
         id: Date.now(),
         type: 'file-manager',
         title: '📁 文件管理',
@@ -1325,7 +1511,8 @@ async selectFmNode(win, node) {
 
     try {
         const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/disks`);
-        win.fmDisks = (res.data || []).filter(d =>
+        const disksArray = res.data.disks || res.data || [];
+        win.fmDisks = disksArray.filter(d =>
             d.mount && !['C:/', '/'].includes(d.mount.toUpperCase().replace('\\', '/'))
         );
     } catch (e) {
@@ -1336,12 +1523,13 @@ async selectFmNode(win, node) {
 },
 
 async selectFmDisk(win, disk) {
-    win.selectedFmDisk = disk;
+    // disk 可能是字符串(mount)或对象
+    const mountPath = typeof disk === 'string' ? disk : disk.mount;
+    win.selectedFmDisk = mountPath.replace(/\\/g, '/');
     win.currentPath = '';
     win.selectedFiles = [];
     await this.loadFmFiles(win);
 },
-
 async loadFmFiles(win) {
     if (!win.selectedFmNode || !win.selectedFmDisk) return;
 
@@ -1349,18 +1537,24 @@ async loadFmFiles(win) {
     win.fmFiles = [];
 
     try {
-        const path = win.currentPath || '';
-        const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/files`, {
-            params: { disk: win.selectedFmDisk, path }
+        // 拼接完整路径，确保使用正斜杠
+        let fullPath = win.selectedFmDisk.replace(/\\/g, '/');
+        if (win.currentPath) {
+            fullPath = `${fullPath}/${win.currentPath}`.replace(/\/+/g, '/');
+        }
+
+        const res = await axios.get(`${this.apiBaseUrl}/api/files/${win.selectedFmNode.id}/list`, {
+            params: { path: fullPath }
         });
-        win.fmFiles = res.data || [];
+
+        // 兼容多种返回格式
+        win.fmFiles = res.data.items || res.data.files || res.data || [];
     } catch (e) {
         console.error('加载文件失败', e);
         win.fmFiles = [];
     }
     win.fmFilesLoading = false;
 },
-
 async refreshFileList(win) {
     await this.loadFmFiles(win);
 },
@@ -1371,8 +1565,8 @@ openFileOrFolder(win, file) {
         win.selectedFiles = [];
         this.loadFmFiles(win);
     } else {
-        // 双击文件 - 可以预览或下载
-        this.downloadFile(win, file);
+        // 双击文件 - 预览
+        this.previewFile(win, file);
     }
 },
 
@@ -1467,6 +1661,67 @@ async downloadFile(win, file) {
     window.open(url, '_blank');
 },
 
+
+// 预览文件
+previewFile(win, file) {
+    const ext = file.name.split('.').pop()?.toLowerCase();
+
+    // 支持直接预览的格式
+    const previewExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'pdf', 'mp4', 'webm', 'mp3', 'wav', 'txt', 'json', 'md', 'html', 'css', 'js'];
+
+    // 需要客户端预览的格式（Office文档等）
+    const clientPreviewExts = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+
+    if (clientPreviewExts.includes(ext)) {
+        // 提示用户去客户端查看
+        alert(`"${file.name}" 是 Office 文档，暂不支持在线预览。\n\n请前往对应节点的客户端界面查看此文件。`);
+        return;
+    }
+
+    if (!previewExts.includes(ext)) {
+        // 其他不支持的格式，提示并询问是否下载
+        if (confirm(`"${file.name}" 暂不支持预览，是否直接下载？`)) {
+            this.downloadFile(win, file);
+        }
+        return;
+    }
+
+    const path = win.currentPath ? `${win.currentPath}/${file.name}` : file.name;
+    const url = `${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/preview?disk=${encodeURIComponent(win.selectedFmDisk)}&path=${encodeURIComponent(path)}`;
+
+    // 设置预览数据
+    win.previewFile = {
+        name: file.name,
+        ext: ext,
+        url: url
+    };
+    win.showPreview = true;
+},
+// 预览选中的第一个文件
+previewSelected(win) {
+    if (!win.selectedFiles?.length) {
+        alert('请先选择文件');
+        return;
+    }
+
+    // 找到第一个非文件夹的选中项
+    for (let name of win.selectedFiles) {
+        const file = win.fmFiles.find(f => f.name === name);
+        if (file && !file.is_dir) {
+            this.previewFile(win, file);
+            return;
+        }
+    }
+
+    alert('请选择一个文件进行预览（不能是文件夹）');
+},
+// 关闭预览
+closePreview(win) {
+    win.showPreview = false;
+    win.previewFile = null;
+},
+
+
 async downloadSelected(win) {
     for (let name of win.selectedFiles) {
         const file = win.fmFiles.find(f => f.name === name);
@@ -1480,11 +1735,9 @@ async deleteFile(win, file) {
     if (!confirm(`确定删除 "${file.name}" 吗？`)) return;
 
     try {
-        await axios.delete(`${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/file`, {
-            data: {
-                disk: win.selectedFmDisk,
-                path: win.currentPath ? `${win.currentPath}/${file.name}` : file.name
-            }
+        await axios.post(`${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/delete`, {
+            disk: win.selectedFmDisk,
+            path: win.currentPath ? `${win.currentPath}/${file.name}` : file.name
         });
         this.loadFmFiles(win);
     } catch (e) {
@@ -1524,7 +1777,7 @@ async deleteSelected(win) {
         const path = (window.currentPath === '/' ? '' : window.currentPath) + '/' + folderName;
 
         try {
-            // 调用 app.py 中新的 /api/files/.../mkdir 接口
+            // 调用 oldapp.py 中新的 /api/files/.../mkdir 接口
             await axios.post(`${this.apiBaseUrl}/api/files/${window.selectedNodeId}/mkdir`, {
                 path: path
             });
@@ -1990,7 +2243,11 @@ async loadEncryptionDisks(window) {
     const res = await axios.get(`${this.apiBaseUrl}/api/encryption/disks`, {
       params: { node_id: window.selectedNodeId }
     });
-    window.encryptionDisks = res.data.disks;
+    // 为每个磁盘添加 selected 属性
+    window.encryptionDisks = res.data.disks.map(disk => ({
+      ...disk,
+      selected: false
+    }));
   } catch (err) {
     console.error('加载磁盘加密状态失败:', err);
     alert('加载磁盘加密状态失败');
@@ -1998,8 +2255,81 @@ async loadEncryptionDisks(window) {
     window.loading = false;
   }
 },
+// 判断磁盘是否被排除
+isDiskExcluded(mount) {
+  if (!mount) return false;
+  const m = mount.toUpperCase();
+  return m === 'C:' || m === 'D:' || m.startsWith('C:') || m.startsWith('D:') || m === '/C' || m === '/D';
+},
 
+// 获取已选中的磁盘数量
+getSelectedDisksCount(window) {
+  if (!window.encryptionDisks) return 0;
+  return window.encryptionDisks.filter(d => d.selected && !this.isDiskExcluded(d.mount) && !d.is_encrypted).length;
+},
 
+// 判断是否全选了可加密磁盘
+isAllEncryptableSelected(window) {
+  if (!window.encryptionDisks) return false;
+  const encryptable = window.encryptionDisks.filter(d => !this.isDiskExcluded(d.mount) && !d.is_encrypted);
+  if (encryptable.length === 0) return false;
+  return encryptable.every(d => d.selected);
+},
+
+// 切换全选可加密磁盘
+toggleSelectAllEncryptable(window) {
+  const allSelected = this.isAllEncryptableSelected(window);
+  window.encryptionDisks.forEach(disk => {
+    if (!this.isDiskExcluded(disk.mount) && !disk.is_encrypted) {
+      disk.selected = !allSelected;
+    }
+  });
+},
+
+// 批量加密磁盘
+async batchEncryptDisks(window) {
+  const selectedDisks = window.encryptionDisks.filter(d => d.selected && !this.isDiskExcluded(d.mount) && !d.is_encrypted);
+  if (selectedDisks.length === 0) {
+    alert('请选择要加密的磁盘');
+    return;
+  }
+
+  const password = prompt(`请输入为 ${selectedDisks.length} 个磁盘设置的统一密码：`);
+  if (!password) return;
+
+  const confirmPassword = prompt('请再次确认密码：');
+  if (password !== confirmPassword) {
+    alert('两次密码不一致');
+    return;
+  }
+
+  const diskList = selectedDisks.map(d => d.mount).join(', ');
+  if (!confirm(`确认要加密以下磁盘？\n${diskList}\n\n此操作将对选中的 ${selectedDisks.length} 个磁盘启用加密。`)) return;
+
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const disk of selectedDisks) {
+    try {
+      const res = await axios.post(`${this.apiBaseUrl}/api/encryption/disk/encrypt`, {
+        node_id: window.selectedNodeId,
+        mount: disk.mount,
+        password
+      });
+      if (res.data.success) {
+        successCount++;
+      } else {
+        failCount++;
+      }
+    } catch (err) {
+      failCount++;
+      console.error(`加密磁盘 ${disk.mount} 失败:`, err);
+    }
+  }
+
+  alert(`批量加密完成！\n成功: ${successCount} 个\n失败: ${failCount} 个`);
+  await this.loadEncryptionDisks(window);
+},
 
 // 执行磁盘加密
 async encryptDisk(window, nodeId, mount) {

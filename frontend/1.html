@@ -698,56 +698,76 @@
             </div>
 
             <!-- 磁盘信息弹窗 -->
-            <div v-if="window.selectedNodeDisks"
-                 @click="window.selectedNodeDisks = null"
-                 class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div @click.stop class="bg-white rounded-xl shadow-2xl max-w-4xl w-full mx-4 max-h-[80vh] overflow-hidden">
-                <div class="px-6 py-4 border-b bg-gradient-to-r from-blue-500 to-purple-600 text-white">
-                  <h3 class="text-xl font-bold">{{ window.selectedNodeDisks.name }} - 磁盘信息</h3>
-                </div>
-                <div class="p-6 overflow-y-auto max-h-[60vh]">
-                  <div v-if="window.selectedNodeDisks.loading" class="flex items-center justify-center py-12">
-                    <div class="loading"></div>
-                    <span class="ml-3 text-gray-600">正在加载磁盘信息...</span>
-                  </div>
-                  <div v-else-if="window.selectedNodeDisks.error" class="text-center py-12">
-                    <div class="text-red-500 text-lg mb-2">❌ 加载失败</div>
-                    <div class="text-gray-600">{{ window.selectedNodeDisks.error }}</div>
-                  </div>
-                  <div v-else class="space-y-4">
-                    <div v-for="(disk, index) in window.selectedNodeDisks.disks" :key="index"
-                         class="border rounded-lg p-4 bg-gray-50">
-                      <div class="flex justify-between items-start mb-3">
-                        <div>
-                          <div class="font-bold text-lg">{{ disk.mount }}</div>
-                          <div class="text-sm text-gray-600">总容量: {{ disk.total_gb }} GB</div>
-                        </div>
-                        <span v-if="disk.ec_scheme" class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
-                          🛡️ {{ disk.ec_scheme }}
-                        </span>
-                      </div>
-                      <div class="w-full bg-gray-200 rounded-full h-4">
-                        <div class="h-4 rounded-full flex items-center justify-center text-xs text-white font-semibold"
-                             :class="disk.usage_percent > 90 ? 'bg-red-500' : disk.usage_percent > 70 ? 'bg-yellow-500' : 'bg-green-500'"
-                             :style="{ width: disk.usage_percent + '%' }">
-                          {{ disk.usage_percent.toFixed(1) }}%
-                        </div>
-                      </div>
-                      <div class="flex justify-between text-xs text-gray-600 mt-2">
-                        <span>已用: {{ disk.used_gb }} GB</span>
-                        <span>可用: {{ disk.free_gb }} GB</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div class="px-6 py-4 border-t bg-gray-50 flex justify-end">
-                  <button @click="window.selectedNodeDisks = null"
-                          class="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">
-                    关闭
-                  </button>
-                </div>
-              </div>
+            <!-- 磁盘信息弹窗 - 科技风格 -->
+<div v-if="window.selectedNodeDisks"
+     @click="window.selectedNodeDisks = null"
+     class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+  <div @click.stop class="bg-gray-900 border border-cyan-500/30 rounded-lg shadow-2xl shadow-cyan-500/20 max-w-lg w-full mx-4 overflow-hidden">
+    <!-- 标题栏 -->
+    <div class="px-5 py-3 border-b border-cyan-500/30 flex items-center justify-between bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900">
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></span>
+        <h3 class="font-mono font-semibold text-cyan-400">{{ window.selectedNodeDisks.name }}</h3>
+      </div>
+      <button @click="window.selectedNodeDisks = null"
+              class="text-gray-500 hover:text-cyan-400 transition-colors text-lg">✕</button>
+    </div>
+
+    <!-- 内容区 -->
+    <div class="p-4 max-h-[55vh] overflow-y-auto">
+      <div v-if="window.selectedNodeDisks.loading" class="flex items-center justify-center py-10">
+        <div class="w-8 h-8 border-2 border-cyan-500/30 border-t-cyan-400 rounded-full animate-spin"></div>
+        <span class="ml-3 text-cyan-400/70 font-mono text-sm">LOADING...</span>
+      </div>
+      <div v-else-if="window.selectedNodeDisks.error" class="text-center py-10">
+        <div class="text-red-400 font-mono mb-2">⚠ ERROR</div>
+        <div class="text-gray-500 text-sm">{{ window.selectedNodeDisks.error }}</div>
+      </div>
+      <div v-else class="space-y-3">
+        <div v-for="(disk, index) in window.selectedNodeDisks.disks" :key="index"
+             class="border border-gray-700 rounded-lg p-3 bg-gray-800/50 hover:border-cyan-500/50 transition-all group">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+              <span class="text-cyan-400">▸</span>
+              <span class="font-mono text-gray-200 text-sm">{{ disk.mount }}</span>
             </div>
+            <span v-if="disk.ec_scheme"
+                  class="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded text-xs font-mono">
+              {{ disk.ec_scheme }}
+            </span>
+          </div>
+          <!-- 进度条 -->
+          <div class="relative w-full bg-gray-700/50 rounded h-1.5 mb-2 overflow-hidden">
+            <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent"></div>
+            <div class="h-full rounded transition-all duration-500"
+                 :class="disk.usage_percent > 90 ? 'bg-gradient-to-r from-red-500 to-red-400 shadow-red-500/50' :
+                         disk.usage_percent > 70 ? 'bg-gradient-to-r from-yellow-500 to-yellow-400 shadow-yellow-500/50' :
+                         'bg-gradient-to-r from-cyan-500 to-blue-400 shadow-cyan-500/50'"
+                 :style="{ width: disk.usage_percent + '%', boxShadow: '0 0 10px currentColor' }">
+            </div>
+          </div>
+          <!-- 数据 -->
+          <div class="flex justify-between font-mono text-xs">
+            <span class="text-gray-500">{{ disk.used_gb }}<span class="text-gray-600">/</span>{{ disk.total_gb }} GB</span>
+            <span :class="disk.usage_percent > 90 ? 'text-red-400' : disk.usage_percent > 70 ? 'text-yellow-400' : 'text-cyan-400'">
+              {{ disk.usage_percent.toFixed(1) }}%
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部装饰 -->
+    <div class="px-4 py-2 border-t border-cyan-500/20 bg-gray-900/80 flex items-center justify-between">
+
+      <div class="flex gap-1">
+        <span class="w-1.5 h-1.5 bg-cyan-400 rounded-full"></span>
+        <span class="w-1.5 h-1.5 bg-cyan-400/60 rounded-full"></span>
+        <span class="w-1.5 h-1.5 bg-cyan-400/30 rounded-full"></span>
+      </div>
+    </div>
+  </div>
+</div>
           </div>
 
 
@@ -853,7 +873,7 @@
     <button @click="window.spaceTab = 'cross-node'"
       :class="window.spaceTab === 'cross-node' ? 'border-b-2 border-blue-500 text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'"
       class="px-4 py-2 -mb-px">
-      🔀 跨节点分配
+      🌐 跨节点存储池
     </button>
     <button @click="window.spaceTab = 'node-pool'"
       :class="window.spaceTab === 'node-pool' ? 'border-b-2 border-blue-500 text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'"
@@ -865,54 +885,285 @@
   <div class="flex-1 overflow-auto p-6 bg-gray-50">
 
     <!-- ========== 跨节点分配 ========== -->
-    <div v-if="window.spaceTab === 'cross-node'">
-      <div class="bg-white rounded-lg shadow border p-6 mb-6">
-        <h4 class="font-bold text-lg mb-4">分配策略</h4>
-        <div class="grid grid-cols-3 gap-4">
-          <div class="border-2 border-blue-500 rounded-lg p-4 cursor-pointer hover:bg-blue-50">
-            <div class="text-3xl mb-2">⚖️</div>
-            <div class="font-semibold">负载均衡</div>
-            <div class="text-xs text-gray-600 mt-1">平均分配到所有节点</div>
-          </div>
-          <div class="border-2 border-gray-300 rounded-lg p-4 cursor-pointer hover:bg-gray-50">
-            <div class="text-3xl mb-2">💾</div>
-            <div class="font-semibold">空间优先</div>
-            <div class="text-xs text-gray-600 mt-1">优先使用空间较大的节点</div>
-          </div>
-          <div class="border-2 border-gray-300 rounded-lg p-4 cursor-pointer hover:bg-gray-50">
-            <div class="text-3xl mb-2">⚡</div>
-            <div class="font-semibold">性能优先</div>
-            <div class="text-xs text-gray-600 mt-1">优先使用高性能节点</div>
-          </div>
-        </div>
-      </div>
+    <div v-if="window.spaceTab === 'cross-node'" class="flex gap-6 h-full">
 
-      <div class="bg-white rounded-lg shadow border p-6 mb-6">
-        <h4 class="font-bold text-lg mb-4">选择要分配的文件</h4>
-        <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-          <div class="text-6xl mb-4">📁</div>
-          <p class="text-gray-600 mb-4">选择源节点和文件</p>
-          <button class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">浏览文件</button>
+      <!-- 左侧：跨节点池列表 -->
+      <div class="w-80 bg-white rounded-lg shadow border p-4 flex-shrink-0 flex flex-col">
+        <div class="flex justify-between items-center mb-4">
+          <h4 class="font-bold text-lg">🌐 跨节点存储池</h4>
+          <button @click="openCreatePoolDialog(window)"
+                  class="px-3 py-1.5 bg-blue-500 text-white rounded text-sm hover:bg-blue-600">
+            + 新建
+          </button>
         </div>
-      </div>
 
-      <div class="bg-white rounded-lg shadow border p-6 mb-6">
-        <h4 class="font-bold text-lg mb-4">选择目标节点 (至少2个)</h4>
-        <div class="space-y-2">
-          <div class="flex items-center p-3 border-2 border-blue-500 bg-blue-50 rounded-lg">
-            <input type="checkbox" checked class="mr-3 h-5 w-5">
-            <div class="flex-1">
-              <div class="font-semibold">NAS-备份节点</div>
-              <div class="text-xs text-gray-600">可用空间: 1.2 TB | CPU: 25%</div>
+        <div v-if="window.crossPoolsLoading" class="flex-1 flex items-center justify-center">
+          <div class="loading"></div>
+        </div>
+
+        <div v-else class="flex-1 overflow-auto space-y-2">
+          <div v-for="pool in (window.crossPools || [])" :key="pool.id"
+               @click="selectCrossPool(window, pool)"
+               :class="window.selectedCrossPool?.id === pool.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'"
+               class="p-3 border-2 rounded-lg cursor-pointer transition-all">
+            <div class="flex items-center justify-between">
+              <div class="flex-1 min-w-0">
+                <div class="font-semibold truncate">{{ pool.display_name || pool.name }}</div>
+                <div class="text-xs text-gray-500 mt-1">
+                  策略: {{ getStrategyName(pool.strategy) }} · {{ (pool.disks || []).length }} 个磁盘
+                </div>
+              </div>
+              <span class="w-2 h-2 rounded-full" :class="pool.status === 'active' ? 'bg-green-500' : 'bg-gray-400'"></span>
             </div>
-            <div class="text-green-600 font-semibold">✓ 已选</div>
+          </div>
+
+          <div v-if="!window.crossPools || window.crossPools.length === 0" class="text-center text-gray-500 py-8">
+            <div class="text-4xl mb-2">📦</div>
+            <p class="text-sm">还没有跨节点存储池</p>
+            <p class="text-xs mt-1">点击"新建"创建一个</p>
           </div>
         </div>
       </div>
 
-      <div class="mt-6 flex justify-end gap-3">
-        <button class="px-6 py-3 bg-gray-200 rounded-lg hover:bg-gray-300">取消</button>
-        <button class="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600">🚀 开始分配</button>
+      <!-- 右侧：池详情 -->
+      <div class="flex-1 min-w-0">
+        <div v-if="!window.selectedCrossPool" class="h-full flex items-center justify-center bg-white rounded-lg shadow border">
+          <div class="text-center text-gray-400">
+            <div class="text-6xl mb-4">👈</div>
+            <p>请选择一个存储池查看详情</p>
+            <p class="text-sm mt-2">或点击"新建"创建跨节点存储池</p>
+          </div>
+        </div>
+
+        <div v-else class="space-y-4">
+          <!-- 池信息卡片 -->
+          <div class="bg-white rounded-lg shadow border p-6">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h4 class="text-xl font-bold">{{ window.selectedCrossPool.display_name || window.selectedCrossPool.name }}</h4>
+                <p class="text-sm text-gray-500 mt-1">{{ window.selectedCrossPool.name }}</p>
+              </div>
+              <div class="flex gap-2">
+                <button @click="openEditPoolDialog(window, window.selectedCrossPool)"
+                        class="px-3 py-1.5 bg-blue-500 text-white rounded text-sm hover:bg-blue-600">
+                  ✏️ 编辑
+                </button>
+                <button @click="deleteCrossPool(window, window.selectedCrossPool)"
+                        class="px-3 py-1.5 bg-red-500 text-white rounded text-sm hover:bg-red-600">
+                  🗑️ 删除
+                </button>
+              </div>
+            </div>
+
+            <!-- 统计信息 -->
+            <div class="grid grid-cols-4 gap-4">
+              <div class="bg-blue-50 p-4 rounded-lg text-center">
+                <div class="text-2xl font-bold text-blue-600">{{ (window.selectedCrossPool.disks || []).length }}</div>
+                <div class="text-xs text-gray-600">磁盘数量</div>
+              </div>
+              <div class="bg-green-50 p-4 rounded-lg text-center">
+                <div class="text-2xl font-bold text-green-600">{{ window.selectedCrossPool.stats?.file_count || 0 }}</div>
+                <div class="text-xs text-gray-600">文件数量</div>
+              </div>
+              <div class="bg-purple-50 p-4 rounded-lg text-center">
+                <div class="text-2xl font-bold text-purple-600">{{ ((window.selectedCrossPool.stats?.total_size || 0) / 1073741824).toFixed(2) }}</div>
+                <div class="text-xs text-gray-600">总大小 (GB)</div>
+              </div>
+              <div class="bg-orange-50 p-4 rounded-lg text-center">
+                <div class="text-2xl font-bold text-orange-600">{{ getStrategyName(window.selectedCrossPool.strategy) }}</div>
+                <div class="text-xs text-gray-600">分配策略</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 磁盘列表 -->
+          <div class="bg-white rounded-lg shadow border p-6">
+            <h5 class="font-bold text-lg mb-4">💾 成员磁盘</h5>
+            <div class="space-y-3">
+              <div v-for="(disk, idx) in (window.selectedCrossPool.disks || [])" :key="idx"
+                   class="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50">
+                <div class="flex items-center gap-3">
+                  <span class="text-2xl">🖥️</span>
+                  <div>
+                    <div class="font-semibold">{{ disk.nodeName }}</div>
+                    <div class="text-xs text-gray-500">{{ disk.nodeIp }} · {{ disk.disk }}</div>
+                  </div>
+                </div>
+                <div class="text-right">
+                  <div class="text-sm font-semibold text-green-600">{{ disk.free || '?' }} GB 可用</div>
+                  <div class="text-xs text-gray-500">共 {{ disk.total || '?' }} GB</div>
+                </div>
+              </div>
+
+              <div v-if="!window.selectedCrossPool.disks || window.selectedCrossPool.disks.length === 0"
+                   class="text-center text-gray-500 py-4">
+                暂无磁盘
+              </div>
+            </div>
+          </div>
+
+          <!-- 策略说明 -->
+          <div class="bg-blue-50 rounded-lg border border-blue-200 p-4">
+            <div class="flex items-start gap-3">
+              <span class="text-2xl">💡</span>
+              <div class="text-sm text-blue-800">
+                <strong>当前策略: {{ getStrategyName(window.selectedCrossPool.strategy) }}</strong>
+                <p class="mt-1" v-if="window.selectedCrossPool.strategy === 'space_first'">文件将优先存储到剩余空间最大的磁盘</p>
+                <p class="mt-1" v-else-if="window.selectedCrossPool.strategy === 'round_robin'">文件将按顺序轮流存储到各个磁盘</p>
+                <p class="mt-1" v-else-if="window.selectedCrossPool.strategy === 'node_spread'">文件将优先分散到不同节点，最大程度提高容错性</p>
+                <p class="mt-1" v-else-if="window.selectedCrossPool.strategy === 'fill'">填满一个磁盘后再使用下一个磁盘</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 创建/编辑跨节点池对话框 -->
+      <div v-if="window.showCreatePoolDialog"
+           class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[2000]"
+           @click.self="window.showCreatePoolDialog = false">
+        <div class="bg-white rounded-lg shadow-xl w-[900px] max-h-[85vh] flex flex-col">
+          <div class="flex justify-between items-center p-6 border-b">
+            <h3 class="text-xl font-bold">{{ window.poolEditMode ? '✏️ 编辑跨节点池' : '➕ 创建跨节点池' }}</h3>
+            <button @click="window.showCreatePoolDialog = false" class="text-gray-500 hover:text-gray-700 text-2xl">×</button>
+          </div>
+
+          <div class="flex-1 overflow-auto p-6">
+            <!-- 基本信息 -->
+            <div class="grid grid-cols-2 gap-4 mb-6">
+              <div>
+                <label class="block text-sm font-semibold mb-2">池名称 (英文)</label>
+                <input v-model="window.poolForm.name" type="text" :disabled="window.poolEditMode"
+                       placeholder="如: main-pool"
+                       :class="window.poolEditMode ? 'bg-gray-100' : ''"
+                       class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-sm font-semibold mb-2">显示名称</label>
+                <input v-model="window.poolForm.display_name" type="text"
+                       placeholder="如: 主存储池"
+                       class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+            </div>
+
+            <!-- 分配策略 -->
+            <div class="mb-6">
+              <label class="block text-sm font-semibold mb-2">分配策略</label>
+              <div class="grid grid-cols-4 gap-3">
+                <div @click="window.poolForm.strategy = 'space_first'"
+                     :class="window.poolForm.strategy === 'space_first' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'"
+                     class="border-2 rounded-lg p-3 cursor-pointer hover:bg-gray-50 text-center">
+                  <div class="text-2xl mb-1">💾</div>
+                  <div class="text-sm font-semibold">空间优先</div>
+                  <div class="text-xs text-gray-500">选剩余空间最大</div>
+                </div>
+                <div @click="window.poolForm.strategy = 'round_robin'"
+                     :class="window.poolForm.strategy === 'round_robin' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'"
+                     class="border-2 rounded-lg p-3 cursor-pointer hover:bg-gray-50 text-center">
+                  <div class="text-2xl mb-1">🔄</div>
+                  <div class="text-sm font-semibold">轮询</div>
+                  <div class="text-xs text-gray-500">按顺序轮流</div>
+                </div>
+                <div @click="window.poolForm.strategy = 'node_spread'"
+                     :class="window.poolForm.strategy === 'node_spread' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'"
+                     class="border-2 rounded-lg p-3 cursor-pointer hover:bg-gray-50 text-center">
+                  <div class="text-2xl mb-1">🌐</div>
+                  <div class="text-sm font-semibold">节点优先</div>
+                  <div class="text-xs text-gray-500">先跨节点再跨盘</div>
+                </div>
+                <div @click="window.poolForm.strategy = 'fill'"
+                     :class="window.poolForm.strategy === 'fill' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'"
+                     class="border-2 rounded-lg p-3 cursor-pointer hover:bg-gray-50 text-center">
+                  <div class="text-2xl mb-1">📥</div>
+                  <div class="text-sm font-semibold">填充</div>
+                  <div class="text-xs text-gray-500">填满再换下一个</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 选择磁盘 -->
+            <div class="mb-4">
+              <label class="block text-sm font-semibold mb-2">选择磁盘</label>
+              <div class="flex gap-4 h-64">
+                <!-- 节点列表 -->
+                <div class="w-56 border rounded-lg overflow-hidden flex flex-col">
+                  <div class="bg-gray-100 px-3 py-2 text-sm font-semibold border-b">选择节点</div>
+                  <div class="flex-1 overflow-auto">
+                    <div v-for="node in (window.allNodes || [])" :key="node.id"
+                         @click="selectNodeForDiskSelection(window, node)"
+                         :class="window.selectedNodeForDisk?.id === node.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'hover:bg-gray-50'"
+                         class="px-3 py-2 cursor-pointer border-b">
+                      <div class="font-semibold text-sm truncate">{{ node.name }}</div>
+                      <div class="text-xs text-gray-500">{{ node.ip }}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 磁盘列表 -->
+                <div class="flex-1 border rounded-lg overflow-hidden flex flex-col">
+                  <div class="bg-gray-100 px-3 py-2 text-sm font-semibold border-b">选择磁盘</div>
+                  <div class="flex-1 overflow-auto p-2">
+                    <div v-if="!window.selectedNodeForDisk"
+                         class="h-full flex items-center justify-center text-gray-400 text-sm">
+                      请先选择节点
+                    </div>
+                    <div v-else-if="window.nodeDisksLoading"
+                         class="h-full flex items-center justify-center">
+                      <div class="loading"></div>
+                    </div>
+                    <div v-else class="space-y-2">
+                      <label v-for="disk in (window.nodeDisks || [])" :key="disk.mount"
+                             class="flex items-center gap-3 p-2 border rounded cursor-pointer hover:bg-gray-50"
+                             :class="isDiskSelected(window, window.selectedNodeForDisk?.id, disk.mount) ? 'border-blue-500 bg-blue-50' : ''">
+                        <input type="checkbox"
+                               :checked="isDiskSelected(window, window.selectedNodeForDisk?.id, disk.mount)"
+                               @change="toggleDiskSelection(window, window.selectedNodeForDisk, disk)"
+                               class="w-4 h-4 accent-blue-500">
+                        <span class="text-lg">💾</span>
+                        <div class="flex-1">
+                          <div class="font-semibold text-sm">{{ disk.mount }}</div>
+                          <div class="text-xs text-gray-500">{{ disk.free_gb || disk.free }} GB 可用 / {{ disk.total_gb || disk.total }} GB</div>
+                        </div>
+                      </label>
+                      <div v-if="window.nodeDisks?.length === 0"
+                           class="text-center text-gray-400 py-4 text-sm">
+                        该节点暂无可用磁盘
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 已选磁盘 -->
+            <div>
+              <label class="block text-sm font-semibold mb-2">已选磁盘 ({{ window.poolForm.disks?.length || 0 }})</label>
+              <div class="border rounded-lg p-3 max-h-40 overflow-auto">
+                <div v-if="!window.poolForm.disks || window.poolForm.disks.length === 0" class="text-center text-gray-400 py-4 text-sm">
+                  尚未选择任何磁盘
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <div v-for="(disk, idx) in (window.poolForm.disks || [])" :key="idx"
+                       class="flex items-center gap-2 px-3 py-1.5 bg-blue-100 text-blue-800 rounded-full text-sm">
+                    <span>🖥️ {{ disk.nodeName }} : {{ disk.disk }}</span>
+                    <button @click="removeDiskFromSelection(window, idx)"
+                            class="text-blue-600 hover:text-red-600 font-bold">×</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex justify-end gap-3 p-6 border-t">
+            <button @click="window.showCreatePoolDialog = false" class="px-4 py-2 border rounded-lg hover:bg-gray-100">取消</button>
+            <button @click="saveCrossPool(window)"
+                    :disabled="!window.poolForm.name || !window.poolForm.disks?.length"
+                    :class="!window.poolForm.name || !window.poolForm.disks?.length ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600'"
+                    class="px-4 py-2 text-white rounded-lg">
+              {{ window.poolEditMode ? '保存修改' : '创建' }}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1042,12 +1293,12 @@
           <h3 class="text-lg font-bold mb-4">添加磁盘到存储池</h3>
           <div class="space-y-2 max-h-60 overflow-auto mb-4">
             <div v-for="disk in window.availableDisks" :key="disk.drive"
-  @click="window.selectedNewDisk = disk.drive"
-  :class="window.selectedNewDisk === disk.drive ? 'border-blue-500 bg-blue-50' : 'border-gray-200'"
-  class="p-3 border-2 rounded cursor-pointer hover:bg-gray-50">
-  <div class="font-semibold">{{ disk.drive }}</div>
-  <div class="text-xs text-gray-500">可用: {{ (disk.free / 1073741824).toFixed(1) }} GB / {{ (disk.total / 1073741824).toFixed(1) }} GB</div>
-</div>
+                 @click="window.selectedNewDisk = disk.drive"
+                 :class="window.selectedNewDisk === disk.drive ? 'border-blue-500 bg-blue-50' : 'border-gray-200'"
+                 class="p-3 border-2 rounded cursor-pointer hover:bg-gray-50">
+              <div class="font-semibold">{{ disk.drive }}</div>
+              <div class="text-xs text-gray-500">可用: {{ (disk.free / 1073741824).toFixed(1) }} GB / {{ (disk.total / 1073741824).toFixed(1) }} GB</div>
+            </div>
             <div v-if="!window.availableDisks?.length" class="text-center text-gray-500 py-4">无可用磁盘</div>
           </div>
           <div class="flex justify-end gap-2">
@@ -1071,18 +1322,18 @@
               <input v-model="window.volumeForm.display_name" class="w-full border rounded px-3 py-2" placeholder="如: 电影库">
             </div>
             <div>
-  <label class="block text-sm font-medium mb-1">图标</label>
-  <div class="flex flex-wrap gap-2">
-    <button v-for="icon in ['📁', '📂', '🗂️', '📦', '🎬', '🎵', '📷', '🎮', '💾', '📚', '📀', '💿', '🖥️', '☁️', '📝', '🔒']"
-            type="button"
-            :key="icon"
-            @click="window.volumeForm.icon = icon"
-            :class="window.volumeForm.icon === icon ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'"
-            class="w-10 h-10 rounded-lg text-xl flex items-center justify-center transition">
-      {{ icon }}
-    </button>
-  </div>
-</div>
+              <label class="block text-sm font-medium mb-1">图标</label>
+              <div class="flex flex-wrap gap-2">
+                <button v-for="icon in ['📁', '📂', '🗂️', '📦', '🎬', '🎵', '📷', '🎮', '💾', '📚', '📀', '💿', '🖥️', '☁️', '📝', '🔒']"
+                        type="button"
+                        :key="icon"
+                        @click="window.volumeForm.icon = icon"
+                        :class="window.volumeForm.icon === icon ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'"
+                        class="w-10 h-10 rounded-lg text-xl flex items-center justify-center transition">
+                  {{ icon }}
+                </button>
+              </div>
+            </div>
             <div>
               <label class="block text-sm font-medium mb-1">存储策略</label>
               <select v-model="window.volumeForm.strategy" class="w-full border rounded px-3 py-2">
@@ -1183,13 +1434,13 @@
               <span class="text-sm font-mono font-semibold">{{ disk.mount }}</span>
             </div>
             <div class="ml-6 mt-1">
-              <div class="text-xs text-gray-500">
-                {{ formatBytes(disk.free) }} / {{ formatBytes(disk.total) }}
-              </div>
-              <div class="mt-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                <div class="h-full bg-blue-500" :style="{width: ((disk.total - disk.free) / disk.total * 100) + '%'}"></div>
-              </div>
-            </div>
+  <div class="text-xs text-gray-500">
+    {{ disk.free_gb || 0 }} GB / {{ disk.total_gb || 0 }} GB
+  </div>
+  <div class="mt-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+    <div class="h-full bg-blue-500" :style="{width: (disk.usage_percent || 0) + '%'}"></div>
+  </div>
+</div>
           </div>
           <div v-if="window.selectedFmNode && !window.fmDisks?.length" class="px-3 py-8 text-center text-gray-400 text-sm">
             暂无磁盘
@@ -1272,6 +1523,11 @@
            class="px-4 py-3 bg-gray-50 border-t flex items-center justify-between">
         <span class="text-sm text-gray-600">已选择 {{ window.selectedFiles.length }} 项</span>
         <div class="flex gap-2">
+         <button @click.stop="previewSelected(window)"
+        class="px-3 py-1.5 text-sm bg-green-500 text-white rounded hover:bg-green-600"
+        title="预览">
+  👁️ 预览
+</button>
           <button @click="downloadSelected(window)" class="px-3 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600">
             ⬇️ 下载
           </button>
@@ -1282,6 +1538,65 @@
             取消选择
           </button>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+          <!-- 预览弹窗 -->
+<div v-if="window.showPreview && window.previewFile"
+     class="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50"
+     @click.self="closePreview(window)">
+  <div class="bg-white rounded-lg max-w-4xl max-h-[90vh] w-full mx-4 flex flex-col overflow-hidden">
+    <!-- 预览头部 -->
+    <div class="px-4 py-3 border-b flex items-center justify-between bg-gray-50">
+      <span class="font-medium truncate">{{ window.previewFile.name }}</span>
+      <div class="flex gap-2">
+        <button @click="downloadFile(window, {name: window.previewFile.name})"
+                class="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600">
+          下载
+        </button>
+        <button @click="closePreview(window)"
+                class="px-3 py-1 text-sm bg-gray-200 rounded hover:bg-gray-300">
+          关闭
+        </button>
+      </div>
+    </div>
+
+    <!-- 预览内容 -->
+    <div class="flex-1 overflow-auto p-4 flex items-center justify-center bg-gray-100">
+      <!-- 图片 -->
+      <img v-if="['jpg','jpeg','png','gif','webp','bmp','svg'].includes(window.previewFile.ext)"
+           :src="window.previewFile.url"
+           class="max-w-full max-h-full object-contain">
+
+      <!-- PDF -->
+      <iframe v-else-if="window.previewFile.ext === 'pdf'"
+              :src="window.previewFile.url"
+              class="w-full h-full min-h-[600px]"></iframe>
+
+      <!-- 视频 -->
+      <video v-else-if="['mp4','webm'].includes(window.previewFile.ext)"
+             :src="window.previewFile.url"
+             controls
+             class="max-w-full max-h-full">
+      </video>
+
+      <!-- 音频 -->
+      <audio v-else-if="['mp3','wav'].includes(window.previewFile.ext)"
+             :src="window.previewFile.url"
+             controls>
+      </audio>
+
+      <!-- 文本类 -->
+      <iframe v-else-if="['txt','json','md','html','css','js'].includes(window.previewFile.ext)"
+              :src="window.previewFile.url"
+              class="w-full h-full min-h-[600px] bg-white"></iframe>
+
+      <!-- 不支持的格式 -->
+      <div v-else class="text-gray-500">
+        此文件格式暂不支持预览
       </div>
     </div>
   </div>
@@ -1643,27 +1958,128 @@
     </div>
   </div>
 
-  <!-- 加密页面内容 -->
+<!-- 加密页面内容 - 一级节点列表 -->
   <div v-if="window.encryptionView === 'overview'" class="flex-1 p-6 bg-gray-50 overflow-auto">
-    <div v-if="window.loading" class="text-center text-gray-500 py-8">加载节点中...</div>
-    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+    <!-- 统计概览 -->
+    <div class="grid grid-cols-4 gap-4 mb-6">
+      <div class="bg-white rounded-xl p-4 border shadow-sm">
+        <div class="flex items-center gap-3">
+          <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center text-2xl">🖥️</div>
+          <div>
+            <div class="text-2xl font-bold text-gray-800">{{ window.nodes.length }}</div>
+            <div class="text-xs text-gray-500">总节点数</div>
+          </div>
+        </div>
+      </div>
+      <div class="bg-white rounded-xl p-4 border shadow-sm">
+        <div class="flex items-center gap-3">
+          <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center text-2xl">✅</div>
+          <div>
+           <div class="text-2xl font-bold text-green-600">{{ window.nodes.filter(n => n.status === 'online').length }}</div>
+            <div class="text-xs text-gray-500">在线节点</div>
+          </div>
+        </div>
+      </div>
+      <div class="bg-white rounded-xl p-4 border shadow-sm">
+        <div class="flex items-center gap-3">
+          <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center text-2xl">🔐</div>
+          <div>
+            <div class="text-2xl font-bold text-purple-600">{{ window.encryptedNodeCount || 0 }}</div>
+            <div class="text-xs text-gray-500">已加密节点</div>
+          </div>
+        </div>
+      </div>
+      <div class="bg-white rounded-xl p-4 border shadow-sm">
+        <div class="flex items-center gap-3">
+          <div class="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center text-2xl">🔒</div>
+          <div>
+            <div class="text-2xl font-bold text-yellow-600">{{ window.lockedDiskCount || 0 }}</div>
+            <div class="text-xs text-gray-500">已锁定磁盘</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 节点列表标题 -->
+    <div class="flex items-center justify-between mb-4">
+      <h4 class="text-lg font-semibold text-gray-700">选择节点进行磁盘加密管理</h4>
+      <button @click="loadEncryptionNodes(window)"
+              class="px-3 py-1.5 text-sm bg-white border rounded-lg hover:bg-gray-50 flex items-center gap-1">
+        🔄 刷新
+      </button>
+    </div>
+
+    <div v-if="window.loading" class="text-center text-gray-500 py-12">
+      <div class="text-4xl mb-2">⏳</div>
+      加载节点中...
+    </div>
+
+    <div v-else-if="window.nodes.length === 0" class="text-center py-12">
+      <div class="text-6xl mb-4">📭</div>
+      <p class="text-gray-500">暂无可用节点</p>
+      <p class="text-sm text-gray-400 mt-1">请先在节点管理中添加节点</p>
+    </div>
+
+    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       <div v-for="node in window.nodes" :key="node.id"
            @click="openEncryptionDetail(window, node)"
-           class="bg-white rounded-lg shadow border p-6 hover:shadow-lg hover:border-blue-500 cursor-pointer transition">
-        <div class="flex justify-between items-center mb-2">
-          <h4 class="font-bold text-lg text-gray-800">{{ node.name }}</h4>
-          <span class="text-2xl">🖥️</span>
+           class="bg-white rounded-xl border overflow-hidden hover:shadow-lg hover:border-blue-400 cursor-pointer transition-all group">
+
+        <!-- 节点头部 -->
+        <div class="px-5 py-4 border-b bg-gradient-to-r from-slate-50 to-gray-50 group-hover:from-blue-50 group-hover:to-indigo-50 transition-all">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 bg-white rounded-lg shadow-sm flex items-center justify-center text-xl border">
+                🖥️
+              </div>
+              <div>
+                <h4 class="font-bold text-gray-800">{{ node.name }}</h4>
+                <p class="text-xs text-gray-500 font-mono">{{ node.ip }}:{{ node.port }}</p>
+              </div>
+            </div>
+            <span class="text-gray-400 group-hover:text-blue-500 transition-colors">→</span>
+          </div>
         </div>
-        <p class="text-xs text-gray-500 mb-3">{{ node.ip }}:{{ node.port }}</p>
-        <div class="text-sm text-gray-700">
-          <span class="text-green-600">在线</span> | 模拟加密状态:
-          <span class="font-semibold">未加密</span>
+
+        <!-- 节点状态 -->
+        <div class="px-5 py-4">
+  <div class="flex items-center justify-between mb-3">
+    <span class="text-sm text-gray-600">连接状态</span>
+    <span v-if="node.status === 'online'" class="flex items-center gap-1 text-sm text-green-600 font-medium">
+      <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> 在线
+    </span>
+    <span v-else class="flex items-center gap-1 text-sm text-red-500 font-medium">
+      <span class="w-2 h-2 bg-red-500 rounded-full"></span> 离线
+    </span>
+  </div>
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-sm text-gray-600">加密磁盘</span>
+            <span class="text-sm font-medium" :class="node.encryptedDisks > 0 ? 'text-purple-600' : 'text-gray-400'">
+              {{ node.encryptedDisks || 0 }} 个
+            </span>
+          </div>
+
+          <div class="flex items-center justify-between">
+            <span class="text-sm text-gray-600">锁定状态</span>
+            <span v-if="node.lockedDisks > 0" class="text-sm text-yellow-600 font-medium">
+              🔒 {{ node.lockedDisks }} 个已锁定
+            </span>
+            <span v-else class="text-sm text-gray-400">无锁定</span>
+          </div>
+        </div>
+
+        <!-- 底部操作提示 -->
+        <div class="px-5 py-3 bg-gray-50 border-t text-center">
+          <span class="text-xs text-gray-500 group-hover:text-blue-600 transition-colors">
+            点击管理磁盘加密 →
+          </span>
         </div>
       </div>
     </div>
   </div>
-
   <!-- 第二级磁盘加密页 -->
+<!-- 第二级磁盘加密页 -->
 <div v-else-if="window.encryptionView === 'detail'" class="flex flex-1 overflow-hidden">
   <div class="flex-1 bg-gray-50 p-6 overflow-y-auto">
     <h4 class="text-lg font-semibold text-gray-700 mb-4">
@@ -1673,9 +2089,36 @@
     <div v-if="window.loading" class="text-center py-8 text-gray-500">加载磁盘中...</div>
 
     <div v-else>
+      <!-- 批量操作栏 -->
+      <div class="mb-4 p-4 bg-white rounded-lg border flex items-center justify-between">
+        <div class="flex items-center gap-4">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox"
+                   :checked="isAllEncryptableSelected(window)"
+                   @change="toggleSelectAllEncryptable(window)"
+                   class="w-4 h-4 rounded">
+            <span class="text-sm text-gray-700">全选可加密磁盘</span>
+          </label>
+          <span class="text-sm text-gray-500">
+            已选择 {{ getSelectedDisksCount(window) }} 个磁盘
+          </span>
+        </div>
+        <button v-if="getSelectedDisksCount(window) > 0"
+                @click="batchEncryptDisks(window)"
+                class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center gap-2">
+          🔐 批量启用加密
+        </button>
+      </div>
+
+      <!-- 提示信息 -->
+      <div class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+        ⚠️ 系统盘 (C:) 和数据盘 (D:) 已自动排除，不可进行加密操作
+      </div>
+
       <table class="w-full text-sm border border-gray-200 bg-white rounded-lg overflow-hidden">
         <thead class="bg-gray-100 text-gray-700">
           <tr>
+            <th class="border px-2 py-2 w-10 text-center">选择</th>
             <th class="border px-2 py-2 text-left">挂载点</th>
             <th class="border px-2 py-2 text-left">容量(GB)</th>
             <th class="border px-2 py-2 text-left">状态</th>
@@ -1683,17 +2126,34 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="disk in window.encryptionDisks" :key="disk.mount" class="hover:bg-gray-50">
-            <td class="border px-2 py-2 font-mono">{{ disk.mount }}</td>
+          <tr v-for="disk in window.encryptionDisks" :key="disk.mount"
+              :class="{'bg-gray-100 opacity-60': isDiskExcluded(disk.mount)}"
+              class="hover:bg-gray-50">
+            <td class="border px-2 py-2 text-center">
+              <input v-if="!isDiskExcluded(disk.mount) && !disk.is_encrypted"
+                     type="checkbox"
+                     v-model="disk.selected"
+                     class="w-4 h-4 rounded cursor-pointer">
+              <span v-else-if="isDiskExcluded(disk.mount)" class="text-gray-400">🚫</span>
+              <span v-else class="text-gray-400">-</span>
+            </td>
+            <td class="border px-2 py-2 font-mono">
+              {{ disk.mount }}
+              <span v-if="isDiskExcluded(disk.mount)" class="ml-2 text-xs text-gray-500">(已排除)</span>
+            </td>
             <td class="border px-2 py-2">{{ disk.capacity_gb }}</td>
             <td class="border px-2 py-2">
-              <span v-if="disk.is_encrypted && disk.is_locked" class="text-yellow-600 font-semibold">🔒 已锁定</span>
+              <span v-if="isDiskExcluded(disk.mount)" class="text-gray-400">系统保护</span>
+              <span v-else-if="disk.is_encrypted && disk.is_locked" class="text-yellow-600 font-semibold">🔒 已锁定</span>
               <span v-else-if="disk.is_encrypted && !disk.is_locked" class="text-green-600 font-semibold">✅ 已加密</span>
               <span v-else class="text-gray-500">未加密</span>
             </td>
             <td class="border px-2 py-2 text-center">
+              <!-- 排除的磁盘不显示操作 -->
+              <span v-if="isDiskExcluded(disk.mount)" class="text-gray-400 text-xs">不可操作</span>
+
               <!-- 未加密：启用加密 -->
-              <button v-if="!disk.is_encrypted"
+              <button v-else-if="!disk.is_encrypted"
                       @click="encryptDisk(window, window.selectedNodeId, disk.mount)"
                       class="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600">
                 🔐 启用加密
@@ -1724,7 +2184,7 @@
             </td>
           </tr>
           <tr v-if="!window.encryptionDisks.length">
-            <td colspan="4" class="text-center text-gray-500 py-4">暂无磁盘数据</td>
+            <td colspan="5" class="text-center text-gray-500 py-4">暂无磁盘数据</td>
           </tr>
         </tbody>
       </table>
@@ -1938,14 +2398,14 @@
                       </span>
                     </div>
                     <div class="text-sm text-gray-600 mt-1">
-                      总容量: {{ formatBytes(disk.total) }} |
-                      可用: <span class="text-green-600 font-semibold">{{ formatBytes(disk.free) }}</span>
-                      ({{ ((disk.free / disk.total) * 100).toFixed(1) }}%)
-                    </div>
-                    <!-- 容量条 -->
-                    <div class="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">
-                      <div class="h-full bg-blue-500" :style="{width: ((disk.total - disk.free) / disk.total * 100) + '%'}"></div>
-                    </div>
+  总容量: {{ disk.total_gb }} GB |
+  可用: <span class="text-green-600 font-semibold">{{ disk.free_gb }} GB</span>
+  ({{ disk.usage_percent }}%)
+</div>
+<!-- 容量条 -->
+<div class="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">
+  <div class="h-full bg-blue-500" :style="{width: disk.usage_percent + '%'}"></div>
+</div>
                   </div>
                 </label>
               </div>
@@ -2111,7 +2571,7 @@
                 <div class="flex-1">
                   <span class="font-mono font-semibold">{{ disk.mount }}</span>
                   <span class="text-sm text-gray-600 ml-2">
-                    (可用: {{ formatBytes(disk.free) }})
+                    (可用: {{ disk.free_gb }} GB)
                   </span>
                 </div>
               </label>
