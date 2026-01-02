@@ -3551,64 +3551,109 @@
   </div>
 </div>
 
-<!-- 帮助文档对话框 -->
+<!-- 帮助文档对话框 - 说明书风格 -->
 <div v-if="showHelpDialog"
      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[2000]"
      @click.self="showHelpDialog = false">
-  <div class="bg-white rounded-lg shadow-xl w-[600px] max-h-[80vh] flex flex-col">
-    <div class="flex justify-between items-center p-6 border-b">
-      <h3 class="text-xl font-bold">❓ 帮助文档</h3>
+  <div class="bg-white rounded-lg shadow-xl w-[900px] h-[80vh] flex flex-col">
+
+    <!-- 标题栏 -->
+    <div class="flex justify-between items-center p-4 border-b bg-gray-50">
+      <h3 class="text-xl font-bold">📘 NAS Center 使用手册</h3>
       <button @click="showHelpDialog = false" class="text-gray-500 hover:text-gray-700 text-2xl">×</button>
     </div>
-    <div class="flex-1 overflow-auto p-6">
 
-      <!-- 快速入门 -->
-      <div class="mb-6">
-        <h4 class="font-bold text-lg mb-3">{{ helpContent.quickStart.title }}</h4>
-        <div class="bg-gray-50 rounded-lg p-4 text-sm space-y-2">
-          <p v-for="(step, index) in helpContent.quickStart.steps" :key="index">
-            <strong>{{ index + 1 }}. {{ step.label }}：</strong>{{ step.text }}
-          </p>
+    <!-- 主体：左侧目录 + 右侧内容 -->
+    <div class="flex flex-1 overflow-hidden">
+
+      <!-- 左侧目录 -->
+      <div class="w-48 border-r bg-gray-50 overflow-y-auto">
+        <div v-for="chapter in helpContent.chapters" :key="chapter.id"
+             @click="currentHelpChapter = chapter.id"
+             class="px-4 py-3 cursor-pointer hover:bg-gray-200 border-b border-gray-100"
+             :class="currentHelpChapter === chapter.id ? 'bg-blue-100 text-blue-700 font-medium' : ''">
+          {{ chapter.icon }} {{ chapter.title }}
         </div>
       </div>
 
-      <!-- 功能说明 -->
-      <div class="mb-6">
-        <h4 class="font-bold text-lg mb-3">{{ helpContent.features.title }}</h4>
-        <div class="space-y-3">
-          <details v-for="item in helpContent.features.items" :key="item.name" class="bg-gray-50 rounded-lg">
-            <summary class="p-3 cursor-pointer font-medium hover:bg-gray-100 rounded-lg">{{ item.icon }} {{ item.name }}</summary>
-            <div class="p-3 pt-0 text-sm text-gray-600">{{ item.desc }}</div>
-          </details>
-        </div>
-      </div>
+      <!-- 右侧内容 -->
+      <div class="flex-1 overflow-y-auto p-6">
+        <div v-if="helpContent.sections[currentHelpChapter]">
+          <h2 class="text-2xl font-bold mb-6 pb-2 border-b">
+            {{ helpContent.sections[currentHelpChapter].title }}
+          </h2>
 
-      <!-- 常见问题 -->
-      <div class="mb-6">
-        <h4 class="font-bold text-lg mb-3">{{ helpContent.faq.title }}</h4>
-        <div class="space-y-3">
-          <details v-for="item in helpContent.faq.items" :key="item.q" class="bg-gray-50 rounded-lg">
-            <summary class="p-3 cursor-pointer font-medium hover:bg-gray-100 rounded-lg">{{ item.q }}</summary>
-            <div class="p-3 pt-0 text-sm text-gray-600">{{ item.a }}</div>
-          </details>
-        </div>
-      </div>
+          <!-- 渲染各种内容块 -->
+          <template v-for="(block, idx) in helpContent.sections[currentHelpChapter].blocks" :key="idx">
 
-      <!-- 快捷操作 -->
-      <div>
-        <h4 class="font-bold text-lg mb-3">{{ helpContent.shortcuts.title }}</h4>
-        <div class="bg-gray-50 rounded-lg p-4 text-sm">
-          <div class="grid grid-cols-2 gap-2">
-            <div v-for="item in helpContent.shortcuts.items" :key="item.key">
-              <span class="bg-gray-200 px-2 py-1 rounded text-xs">{{ item.key }}</span> {{ item.action }}
+            <!-- 文字段落 -->
+            <p v-if="block.type === 'text'" class="text-gray-700 mb-4 leading-relaxed">
+              {{ block.content }}
+            </p>
+
+            <!-- 小标题 -->
+            <h3 v-if="block.type === 'heading'" class="text-lg font-bold mt-6 mb-3 text-gray-800">
+              {{ block.content }}
+            </h3>
+
+            <!-- 图片 -->
+            <figure v-if="block.type === 'image'" class="my-4">
+              <img :src="block.src" :alt="block.caption"
+                   class="rounded-lg border shadow-sm max-w-full">
+              <figcaption class="text-center text-sm text-gray-500 mt-2">
+                {{ block.caption }}
+              </figcaption>
+            </figure>
+
+            <!-- 提示框 -->
+            <div v-if="block.type === 'tip'"
+                 class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-4 rounded-r">
+              <span class="font-medium text-blue-700">💡 提示：</span>
+              <span class="text-blue-600">{{ block.content }}</span>
             </div>
-          </div>
+
+            <!-- 警告框 -->
+            <div v-if="block.type === 'warning'"
+                 class="bg-yellow-50 border-l-4 border-yellow-500 p-4 mb-4 rounded-r">
+              <span class="font-medium text-yellow-700">⚠️ 注意：</span>
+              <span class="text-yellow-600">{{ block.content }}</span>
+            </div>
+
+            <!-- 步骤说明 -->
+            <div v-if="block.type === 'steps'" class="space-y-6 my-4">
+              <div v-for="(step, i) in block.items" :key="i"
+                   class="flex gap-4 bg-gray-50 rounded-lg p-4">
+                <div class="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold flex-shrink-0">
+                  {{ i + 1 }}
+                </div>
+                <div class="flex-1">
+                  <h4 class="font-bold mb-1">{{ step.title }}</h4>
+                  <p class="text-gray-600 text-sm mb-2">{{ step.text }}</p>
+                  <img v-if="step.image" :src="step.image" class="rounded border max-w-md">
+                </div>
+              </div>
+            </div>
+
+            <!-- 列表说明 -->
+            <div v-if="block.type === 'list'" class="bg-gray-50 rounded-lg p-4 mb-4">
+              <div v-for="item in block.items" :key="item.label" class="py-2 border-b last:border-0">
+                <span class="font-medium text-blue-600">{{ item.label }}：</span>
+                <span class="text-gray-600">{{ item.desc }}</span>
+              </div>
+            </div>
+
+          </template>
         </div>
       </div>
-
     </div>
-    <div class="flex justify-end p-6 border-t">
-      <button @click="showHelpDialog = false" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">关闭</button>
+
+    <!-- 底部 -->
+    <div class="flex justify-between items-center p-4 border-t bg-gray-50">
+      <span class="text-sm text-gray-500">NAS Center v1.0.0</span>
+      <button @click="showHelpDialog = false"
+              class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+        关闭
+      </button>
     </div>
   </div>
 </div>

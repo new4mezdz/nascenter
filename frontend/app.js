@@ -29,7 +29,7 @@ createApp({
 showCreatePoolDialog: false,
 poolForm: { name: '', display_name: '', strategy: 'space_first', disks: [] },
 poolEditMode: false,
-
+currentHelpChapter: 'quickstart',  // 当前选中的章节
             // 个人信息
 showProfileDialog: false,
 profileForm: {
