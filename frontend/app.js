@@ -2824,6 +2824,64 @@ async changePassword(window, nodeId, mount) {
   }
 },
 
+// 创建节点存储池
+async createNodePool(win) {
+    if (!win.selectedPoolNode) return;
+
+    try {
+        const disksRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${win.selectedPoolNode.id}/proxy/pool/available-disks`);
+        let availableDisks = disksRes.data || [];
+
+        // 排除C盘和D盘
+        const excludedDrives = ['C:', 'D:', 'c:', 'd:', '/c', '/d', 'C', 'D'];
+        availableDisks = availableDisks.filter(disk => {
+            const path = typeof disk === 'string' ? disk : (disk.drive || disk.path || disk.mount || '');
+            return !excludedDrives.some(ex => path.toUpperCase().startsWith(ex.toUpperCase()));
+        });
+
+        // 格式化磁盘数据
+        win.createPoolDisks = availableDisks.map(disk => {
+            if (typeof disk === 'string') return { drive: disk, total: 0, free: 0 };
+            return {
+                drive: disk.drive || disk.path || disk.mount || '未知',
+                total: disk.total || 0,
+                free: disk.free || 0
+            };
+        });
+        win.createPoolSelected = [];
+        win.showCreatePoolDialog = true;
+    } catch (e) {
+        alert('获取磁盘列表失败: ' + (e.response?.data?.error || e.message));
+    }
+},
+
+toggleCreatePoolDisk(win, drive) {
+    const idx = win.createPoolSelected.indexOf(drive);
+    if (idx >= 0) {
+        win.createPoolSelected.splice(idx, 1);
+    } else {
+        win.createPoolSelected.push(drive);
+    }
+},
+
+async confirmCreateNodePool(win) {
+    if (!win.createPoolSelected?.length) return;
+
+    try {
+        await axios.post(`${this.apiBaseUrl}/api/nodes/${win.selectedPoolNode.id}/proxy/pool/create`, {
+            name: '主存储池',
+            disks: win.createPoolSelected
+        });
+        alert('存储池创建成功！');
+        win.showCreatePoolDialog = false;
+        this.refreshNodePool(win);
+    } catch (e) {
+        alert('创建失败: ' + (e.response?.data?.error || e.message));
+    }
+},
+
+
+
 
 openCreateGroupDialog() {
     // 1. 重置 groupForm 为初始创建状态

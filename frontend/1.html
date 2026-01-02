@@ -1207,12 +1207,15 @@
         </div>
 
         <div v-else-if="window.poolStatus?.error" class="h-full flex items-center justify-center bg-white rounded-lg shadow border">
-          <div class="text-center text-gray-500">
-            <div class="text-6xl mb-4">⚠️</div>
-            <p>{{ window.poolStatus.error }}</p>
-            <button @click="refreshNodePool(window)" class="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">重试</button>
-          </div>
-        </div>
+  <div class="text-center text-gray-500">
+    <div class="text-6xl mb-4">⚠️</div>
+    <p>{{ window.poolStatus.error }}</p>
+    <div class="mt-4 flex gap-3 justify-center">
+      <button @click="refreshNodePool(window)" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">🔄 重试</button>
+      <button @click="createNodePool(window)" class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">➕ 创建存储池</button>
+    </div>
+  </div>
+</div>
 
         <div v-else class="space-y-6">
           <!-- 存储池总览 -->
@@ -1254,7 +1257,12 @@
                 </div>
               </div>
             </div>
-            <div v-else class="text-center text-gray-500 py-6">该节点暂无存储池磁盘</div>
+            <div v-else class="text-center text-gray-500 py-6">
+              <p>该节点暂无存储池磁盘</p>
+              <button @click="createNodePool(window)" class="mt-3 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600">
+                ➕ 创建存储池
+              </button>
+            </div>
           </div>
 
           <!-- 逻辑卷管理 -->
@@ -1307,6 +1315,46 @@
           </div>
         </div>
       </div>
+
+      <!-- 创建存储池对话框 -->
+<div v-if="window.showCreatePoolDialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+  <div class="bg-white rounded-lg shadow-xl w-[450px] p-6">
+    <h3 class="text-lg font-bold mb-4">➕ 创建存储池</h3>
+    <p class="text-sm text-gray-500 mb-4">选择要加入存储池的磁盘（可多选，已排除系统盘）</p>
+    <div class="space-y-2 max-h-72 overflow-auto mb-4">
+      <div v-for="disk in window.createPoolDisks" :key="disk.drive"
+           @click="toggleCreatePoolDisk(window, disk.drive)"
+           :class="window.createPoolSelected.includes(disk.drive) ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:bg-gray-50'"
+           class="p-3 border-2 rounded-lg cursor-pointer transition-all">
+        <div class="flex items-center gap-3">
+          <span class="text-xl">{{ window.createPoolSelected.includes(disk.drive) ? '☑️' : '⬜' }}</span>
+          <div class="flex-1">
+            <div class="font-semibold">{{ disk.drive }}</div>
+            <div class="text-xs text-gray-500">
+              可用: {{ (disk.free / 1073741824).toFixed(1) }} GB / 共 {{ (disk.total / 1073741824).toFixed(1) }} GB
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-if="!window.createPoolDisks?.length" class="text-center text-gray-500 py-8">
+        <div class="text-3xl mb-2">😕</div>
+        <p>无可用磁盘</p>
+      </div>
+    </div>
+    <div v-if="window.createPoolSelected?.length" class="text-sm text-green-600 mb-4">
+      已选择 {{ window.createPoolSelected.length }} 个磁盘
+    </div>
+    <div class="flex justify-end gap-2">
+      <button @click="window.showCreatePoolDialog = false" class="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">取消</button>
+      <button @click="confirmCreateNodePool(window)"
+              :disabled="!window.createPoolSelected?.length"
+              :class="window.createPoolSelected?.length ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-300 cursor-not-allowed'"
+              class="px-4 py-2 text-white rounded-lg">
+        创建存储池
+      </button>
+    </div>
+  </div>
+</div>
 
       <!-- 逻辑卷对话框 -->
       <div v-if="window.showVolumeDialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
