@@ -374,7 +374,8 @@ async saveCrossEcConfig(window) {
                 totalDisks,
                 createdAt: new Date().toISOString()
             };
-            alert('跨节点EC配置已保存！');
+          alert('跨节点EC配置已保存！');
+            await this.loadEcWindowData(window);  // 添加这行
         } else {
             alert(res.data.error || '保存失败');
         }
@@ -393,13 +394,33 @@ async saveCrossEcConfig(window) {
     }
 },
 async deleteCrossEcConfig(window) {
-    if (!confirm('确定删除跨节点EC配置？')) return;
-
     try {
+        // 先检查是否有文件
+        const filesRes = await axios.get(`${this.apiBaseUrl}/api/ec_files?type=cross`);
+        const files = filesRes.data.files || [];
+        const fileCount = files.length;
+
+        let confirmMsg = '确定删除跨节点EC配置？';
+        if (fileCount > 0) {
+            confirmMsg = `⚠️ EC池中有 ${fileCount} 个文件！\n\n删除配置后这些文件的分片数据仍保留在各磁盘上，但将无法正常读取。\n\n建议先导出文件再删除配置。\n\n是否继续删除？`;
+        }
+
+        if (!confirm(confirmMsg)) return;
+
+        if (fileCount > 0) {
+            const exportFirst = confirm('是否先一键导出所有文件？\n\n点击"确定"开始导出，点击"取消"直接删除配置');
+            if (exportFirst) {
+                await this.exportAllEcFiles('cross', null);
+                // 导出完成后再次确认是否删除
+                if (!confirm('文件已导出完成，是否继续删除配置？')) return;
+            }
+        }
+
         const res = await axios.delete('/api/cross_ec_config');
         if (res.data.success) {
             window.crossEcConfig = null;
             alert('配置已删除');
+            await this.loadEcWindowData(window);
         }
     } catch (e) {
         alert('删除失败: ' + (e.response?.data?.error || e.message));
@@ -415,9 +436,9 @@ async selectNodeForSingleEc(win, node) {
     try {
         // 获取节点EC配置
         const cfgRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/ec_config`);
-        if (cfgRes.data && cfgRes.data.scheme) {
-            win.singleEcConfig = cfgRes.data;
-        }
+        if (cfgRes.data && cfgRes.data.config && (cfgRes.data.config.scheme || cfgRes.data.config.k)) {
+    win.singleEcConfig = cfgRes.data.config;
+}
         // 获取磁盘列表
         const diskRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/disks`);
         win.singleEcNodeDisks = (diskRes.data.disks || diskRes.data || []).filter(d =>
@@ -428,6 +449,11 @@ async selectNodeForSingleEc(win, node) {
         win.singleEcNodeDisks = [];
     }
     win.singleEcLoading = false;
+},
+
+        triggerEcFileInput(win) {
+    const input = document.getElementById('ecFileInput' + win.id);
+    if (input) input.click();
 },
 
 async saveSingleEcConfig(win) {
@@ -445,43 +471,239 @@ async saveSingleEcConfig(win) {
     }
 },
 
+
+
 async deleteSingleEcConfig(win) {
-    if (!confirm('确定删除该节点的EC配置？')) return;
     try {
-        await axios.delete(`${this.apiBaseUrl}/api/nodes/${win.selectedSingleEcNode.id}/ec_config`);
+        const nodeId = win.selectedSingleEcNode.id;
+        const nodeName = win.selectedSingleEcNode.name;
+
+        // 先检查是否有文件
+        let files = [];
+        try {
+            const filesRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${nodeId}/proxy/ec_files`);
+            files = filesRes.data.files || [];
+        } catch (e) {}
+
+        const fileCount = files.length;
+
+        let confirmMsg = '确定删除该节点的EC配置？';
+        if (fileCount > 0) {
+            confirmMsg = `⚠️ EC池中有 ${fileCount} 个文件！\n\n删除配置后这些文件的分片数据仍保留在磁盘上，但将无法正常读取。\n\n建议先导出文件再删除配置。\n\n是否继续删除？`;
+        }
+
+        if (!confirm(confirmMsg)) return;
+
+        if (fileCount > 0) {
+            const exportFirst = confirm('是否先一键导出所有文件？\n\n点击"确定"开始导出，点击"取消"直接删除配置');
+            if (exportFirst) {
+                await this.exportAllEcFiles('node', nodeId);
+                // 导出完成后再次确认是否删除
+                if (!confirm('文件已导出完成，是否继续删除配置？')) return;
+            }
+        }
+
+        await axios.delete(`${this.apiBaseUrl}/api/nodes/${nodeId}/ec_config`);
         win.singleEcConfig = null;
         alert('配置已删除');
+        await this.loadEcStatus(win);
+        await this.selectNodeForSingleEc(win, win.selectedSingleEcNode);
     } catch (e) {
         alert('删除失败: ' + (e.response?.data?.error || e.message));
     }
 },
-// ========== EC上传方法 ==========
-handleEcFileDrop(e) {
-    const files = Array.from(e.dataTransfer.files);
-    // 找到当前EC窗口
-    const ecWindow = this.windows.find(w => w.type === 'ec-config');
-    if (ecWindow) {
-        ecWindow.ecUploadFiles = ecWindow.ecUploadFiles || [];
-        ecWindow.ecUploadFiles.push(...files);
+
+
+// 一键导出所有EC文件
+async exportAllEcFiles(type, nodeId) {
+    try {
+        let url;
+        if (type === 'cross') {
+            url = `${this.apiBaseUrl}/api/ec_export_all`;
+        } else {
+            url = `${this.apiBaseUrl}/api/nodes/${nodeId}/proxy/ec_export_all`;
+        }
+
+        // 触发下载
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `ec_export_${Date.now()}.zip`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        // 等待一下让下载开始
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+    } catch (e) {
+        alert('导出失败: ' + (e.response?.data?.error || e.message));
+        throw e;
     }
 },
-
-handleEcFileSelect(e) {
-    const files = Array.from(e.target.files);
-    const ecWindow = this.windows.find(w => w.type === 'ec-config');
-    if (ecWindow) {
-        ecWindow.ecUploadFiles = ecWindow.ecUploadFiles || [];
-        ecWindow.ecUploadFiles.push(...files);
+// ========== EC上传方法 ==========
+handleEcFileDrop(e, window) {
+    const files = Array.from(e.dataTransfer.files);
+    if (!window) {
+        window = this.windows.find(w => w.type === 'ec-config');
     }
+    if (window) {
+        window.ecUploadFiles = window.ecUploadFiles || [];
+        window.ecUploadFiles.push(...files);
+    }
+},
+// ========== EC状态监控方法 ==========
+async loadEcStatus(window) {
+    window.ecStatusLoading = true;
+    window.ecStatus = { cross_ec: null, single_ec_nodes: [] };
+
+    try {
+        // 加载跨节点EC配置作为状态
+        if (window.crossEcConfig) {
+            window.ecStatus.cross_ec = {
+                ...window.crossEcConfig,
+                health: 'healthy'
+            };
+        }
+
+        // 遍历节点获取单节点EC状态
+        for (const node of (window.allNodes || [])) {
+            if (node.status !== 'online') continue;
+            try {
+                const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/ec_config`);
+                if (res.data && res.data.config && (res.data.config.scheme || res.data.config.k)) {
+    window.ecStatus.single_ec_nodes.push({
+        node_id: node.id,
+        node_name: node.name,
+        ip: node.ip,
+        config: res.data.config,
+                        health: 'healthy',
+                        online: true
+                    });
+                }
+            } catch (e) {
+                // 节点无EC配置，跳过
+            }
+        }
+    } catch (e) {
+        console.error('加载EC状态失败:', e);
+    }
+    window.ecStatusLoading = false;
+},
+
+async loadEcFiles(win) {
+    win.ecFilesLoading = true;
+    win.ecFiles = [];
+
+    try {
+        // 加载跨节点EC文件
+        if (win.crossEcConfig) {
+            try {
+                const res = await axios.get(`${this.apiBaseUrl}/api/ec_files?type=cross`);
+                const crossFiles = (res.data.files || []).map(f => ({
+                    ...f,
+                    source: 'cross',
+                    sourceName: '跨节点EC'
+                }));
+                win.ecFiles.push(...crossFiles);
+            } catch (e) {}
+        }
+
+        // 加载各节点的单节点EC文件
+        for (const node of (win.allNodes || [])) {
+            if (node.status !== 'online') continue;
+            try {
+                const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/proxy/ec_files`);
+                const nodeFiles = (res.data.files || []).map(f => ({
+                    ...f,
+                    source: node.id,
+                    sourceName: node.name
+                }));
+                win.ecFiles.push(...nodeFiles);
+            } catch (e) {}
+        }
+    } catch (e) {
+        console.error('加载EC文件失败:', e);
+    }
+    win.ecFilesLoading = false;
+},
+
+getFileIcon(filename) {
+    const ext = (filename || '').split('.').pop().toLowerCase();
+    const icons = {
+        'pdf': '📕', 'doc': '📘', 'docx': '📘',
+        'xls': '📗', 'xlsx': '📗', 'csv': '📗',
+        'ppt': '📙', 'pptx': '📙',
+        'jpg': '🖼️', 'jpeg': '🖼️', 'png': '🖼️', 'gif': '🖼️', 'webp': '🖼️',
+        'mp4': '🎬', 'avi': '🎬', 'mkv': '🎬', 'mov': '🎬',
+        'mp3': '🎵', 'wav': '🎵', 'flac': '🎵',
+        'zip': '📦', 'rar': '📦', '7z': '📦', 'tar': '📦', 'gz': '📦',
+        'txt': '📄', 'md': '📄', 'json': '📄', 'xml': '📄',
+        'js': '📜', 'py': '📜', 'java': '📜', 'cpp': '📜', 'c': '📜'
+    };
+    return icons[ext] || '📄';
+},
+
+formatFileSize(bytes) {
+    if (!bytes) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0;
+    while (bytes >= 1024 && i < units.length - 1) {
+        bytes /= 1024;
+        i++;
+    }
+    return bytes.toFixed(i > 0 ? 2 : 0) + ' ' + units[i];
+},
+
+handleEcFileSelect(e, window) {
+    const files = Array.from(e.target.files);
+    if (!window) {
+        window = this.windows.find(w => w.type === 'ec-config');
+    }
+    if (window) {
+        window.ecUploadFiles = window.ecUploadFiles || [];
+        window.ecUploadFiles.push(...files);
+    }
+    e.target.value = '';  // 清空input以便再次选择相同文件
 },
 
 async startEcUpload(window) {
     if (!window.uploadTargetEc || !window.ecUploadFiles?.length) return;
 
-    alert('上传功能开发中...\n将上传 ' + window.ecUploadFiles.length + ' 个文件到EC池');
-    // TODO: 实现实际上传逻辑
-},
+    window.uploadingEc = true;
+    window.uploadedCount = 0;
 
+    for (let i = 0; i < window.ecUploadFiles.length; i++) {
+        const file = window.ecUploadFiles[i];
+        file.progress = 0;
+        file.status = 'uploading';
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('target', window.uploadTargetEc);
+
+            await axios.post(`${this.apiBaseUrl}/api/ec_upload`, formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+                onUploadProgress: (e) => {
+                    file.progress = Math.round((e.loaded / e.total) * 100);
+                }
+            });
+
+            file.status = 'success';
+            file.progress = 100;
+        } catch (e) {
+            file.status = 'error';
+            console.error('上传失败:', file.name, e);
+        }
+
+        window.uploadedCount = i + 1;
+    }
+
+    window.uploadingEc = false;
+
+    // 刷新文件列表
+    this.loadEcFiles(window);
+},
 
 
 
@@ -1063,11 +1285,12 @@ async selectNodeForPool(win, node) {
     try {
         window.loading = true;
 
-        const [usersRes, nodesRes, groupsRes, whitelistRes] = await Promise.all([
+ const [usersRes, nodesRes, groupsRes, whitelistRes, policiesRes] = await Promise.all([
     axios.get(`${this.apiBaseUrl}/api/users`),
     axios.get(`${this.apiBaseUrl}/api/nodes`),
     axios.get(`${this.apiBaseUrl}/api/node-groups`),
-    axios.get(`${this.apiBaseUrl}/api/admin/whitelist`)
+    axios.get(`${this.apiBaseUrl}/api/admin/whitelist`),
+    axios.get(`${this.apiBaseUrl}/api/node-policies`)  // 新增
 ]);
 
 // 白名单数据
@@ -1095,7 +1318,13 @@ this.allUsersForWhitelist = usersRes.data.filter(u => u.role !== 'admin');
 
 
         // 节点列表
-        window.nodes = nodesRes.data;
+        // 节点列表 - 合并策略数据
+const policies = policiesRes.data || {};
+window.nodes = nodesRes.data.map(node => ({
+    ...node,
+    access_policy: policies[node.id] || 'all_users'
+}));
+window.nodePolicies = policies;
         // 同时更新到 availableNodes 供对话框使用
         this.availableNodes = window.nodes;
 
@@ -1209,48 +1438,66 @@ async saveSecret() {
 },
 
     // ============ 纠删码配置 ============
-  openECConfig() {
-    const existingWindow = this.windows.find(w => w.type === 'ec-config');
-    if (existingWindow) {
-        this.focusWindow(existingWindow);
-        return;
-    }
-
-    const win = {
-        id: Date.now(),
+openECConfig() {
+    const win = this.createWindow({
         type: 'ec-config',
-        title: '🛡️ 纠删码配置',
+        title: '纠删码配置',
+        icon: '🛡️',
         width: 1100,
         height: 700,
-        x: 150,
-        y: 80,
-        zIndex: this.nextZIndex++,
-        isMaximized: false,
         ecTab: 'cross-node',
         allNodes: [],
-        // 跨节点EC
         crossEcConfig: null,
         crossEcForm: { k: 4, m: 2, selectedDisks: {} },
         selectedCrossEcNode: null,
         crossEcNodeDisks: [],
         crossEcLoading: false,
-        // 单节点EC
         selectedSingleEcNode: null,
         singleEcConfig: null,
         singleEcForm: { k: 4, m: 2, disks: [] },
         singleEcNodeDisks: [],
         singleEcLoading: false,
-        // 上传
+        // 状态监控
+        ecStatus: null,
+        ecStatusLoading: false,
+        // 上传相关
         uploadTargetEc: '',
-        ecUploadFiles: []
-    };
+        ecUploadFiles: [],
+        uploadingEc: false,
+        uploadedCount: 0,
+        dragOver: false,
+        ecFiles: [],
+        ecFilesLoading: false
+    });
+    this.loadEcWindowData(win);
+},
 
-    this.windows.push(win);
+async loadEcWindowData(win) {
+    // 加载节点列表
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes`);
+        win.allNodes = res.data || [];
 
-    // 加载节点数据
-    this.loadNodesForECConfig(win);
-    // 加载跨节点EC配置
-    this.loadCrossEcConfig(win);
+        // 检查每个在线节点是否已配置EC
+        for (const node of win.allNodes) {
+            if (node.status !== 'online') {
+                node.ecConfigured = false;
+                continue;
+            }
+            try {
+                const ecRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/ec_config`);
+                node.ecConfigured = !!(ecRes.data && ecRes.data.config && (ecRes.data.config.scheme || ecRes.data.config.k));
+            } catch (e) {
+                node.ecConfigured = false;
+            }
+        }
+    } catch (e) {
+        win.allNodes = [];
+    }
+    // 先加载跨节点EC配置
+    await this.loadCrossEcConfig(win);
+    // 再加载EC状态（依赖crossEcConfig）
+    await this.loadEcStatus(win);
 },
 
 async loadNodesForECConfig(win) {
@@ -1478,8 +1725,13 @@ openFileManager() {
         fmNodes: [],
         fmDisks: [],
         fmFiles: [],
+        fmEcVolume: null,        // 单节点EC卷
+        fmPoolVolumes: [],       // 存储池逻辑卷
+        crossEcVolume: null,     // 跨节点EC卷
         selectedFmNode: null,
         selectedFmDisk: null,
+        selectedVolumeType: null, // 'disk', 'single-ec', 'pool', 'cross-ec'
+        selectedPoolVolume: null,
         currentPath: '',
         selectedFiles: [],
         // 加载状态
@@ -1489,7 +1741,53 @@ openFileManager() {
 
     this.windows.push(win);
     this.loadFmNodes(win);
+    this.loadCrossEcVolume(win);
 },
+
+        async loadCrossEcVolume(win) {
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/cross_ec_config`);
+        if (res.data && res.data.config) {
+            win.crossEcVolume = res.data.config;
+        }
+    } catch (e) {
+        win.crossEcVolume = null;
+    }
+},
+
+
+ async selectCrossEcVolume(win) {
+    win.selectedFmNode = null;
+    win.selectedFmDisk = null;
+    win.selectedVolumeType = 'cross-ec';
+    win.currentPath = '';
+    win.fmFiles = [];
+    win.fmDisks = [];
+    win.fmEcVolume = null;
+    win.fmPoolVolumes = [];
+
+    // 加载跨节点EC卷的文件列表
+    await this.loadCrossEcFiles(win);
+},
+
+
+
+  async loadCrossEcFiles(win) {
+    win.fmFilesLoading = true;
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/ec_files`);
+        win.fmFiles = (res.data.files || []).map(f => ({
+            name: f.name,
+            isDir: false,
+            size: f.size,
+            type: 'ec-file'
+        }));
+    } catch (e) {
+        win.fmFiles = [];
+    }
+    win.fmFilesLoading = false;
+},
+
 
 async loadFmNodes(win) {
     try {
@@ -1504,17 +1802,51 @@ async loadFmNodes(win) {
 async selectFmNode(win, node) {
     win.selectedFmNode = node;
     win.selectedFmDisk = null;
+    win.selectedVolumeType = null;
+    win.selectedPoolVolume = null;
     win.currentPath = '';
     win.fmFiles = [];
     win.selectedFiles = [];
     win.fmDisksLoading = true;
+    win.fmEcVolume = null;
+    win.fmPoolVolumes = [];
 
     try {
+        // 获取磁盘列表
         const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/disks`);
         const disksArray = res.data.disks || res.data || [];
-        win.fmDisks = disksArray.filter(d =>
-            d.mount && !['C:/', '/'].includes(d.mount.toUpperCase().replace('\\', '/'))
-        );
+
+        // 获取EC配置
+        let ecDisks = [];
+        try {
+            const ecRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/ec_config`);
+            if (ecRes.data && ecRes.data.config && ecRes.data.config.disks) {
+                win.fmEcVolume = ecRes.data.config;
+                ecDisks = ecRes.data.config.disks.map(d => d.toUpperCase().replace(/\\/g, '/'));
+            }
+        } catch (e) {}
+
+        // 获取存储池逻辑卷
+        let poolDisks = [];
+        try {
+            const poolRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/proxy/pool/status`);
+            if (poolRes.data && poolRes.data.disks) {
+                poolDisks = poolRes.data.disks.map(d => d.toUpperCase().replace(/\\/g, '/'));
+            }
+            // 获取逻辑卷列表
+            const volRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/proxy/pool/volumes`);
+            win.fmPoolVolumes = volRes.data || [];
+        } catch (e) {}
+
+        // 过滤磁盘
+        win.fmDisks = disksArray.filter(d => {
+            if (!d.mount) return false;
+            const mount = d.mount.toUpperCase().replace(/\\/g, '/');
+            if (['C:/', '/'].includes(mount)) return false;
+            if (ecDisks.includes(mount)) return false;
+            if (poolDisks.includes(mount)) return false;
+            return true;
+        });
     } catch (e) {
         console.error('加载磁盘失败', e);
         win.fmDisks = [];
@@ -1522,14 +1854,58 @@ async selectFmNode(win, node) {
     win.fmDisksLoading = false;
 },
 
+        selectFmVolume(win, type, volume) {
+    win.selectedVolumeType = type === 'ec' ? 'single-ec' : 'pool';
+    win.selectedFmDisk = null;
+    win.selectedPoolVolume = type === 'pool' ? volume : null;
+    win.currentPath = '';
+    win.selectedFiles = [];
+
+    if (type === 'ec') {
+        this.loadEcVolumeFiles(win);
+    } else {
+        this.loadPoolVolumeFiles(win, volume);
+    }
+},
+
+   async loadEcVolumeFiles(win) {
+    win.fmFilesLoading = true;
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/proxy/ec_files`);
+        win.fmFiles = (res.data.files || []).map(f => ({
+            name: f.name,
+            isDir: false,
+            size: f.size,
+            type: 'ec-file'
+        }));
+    } catch (e) {
+        win.fmFiles = [];
+    }
+    win.fmFilesLoading = false;
+},
+
+
+        async loadPoolVolumeFiles(win, volume) {
+    win.fmFilesLoading = true;
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/proxy/pool/list?volume=${volume.name}&subpath=${win.currentPath}`);
+        win.fmFiles = res.data.items || [];
+    } catch (e) {
+        win.fmFiles = [];
+    }
+    win.fmFilesLoading = false;
+},
+
 async selectFmDisk(win, disk) {
-    // disk 可能是字符串(mount)或对象
     const mountPath = typeof disk === 'string' ? disk : disk.mount;
     win.selectedFmDisk = mountPath.replace(/\\/g, '/');
+    win.selectedVolumeType = 'disk';
+    win.selectedPoolVolume = null;
     win.currentPath = '';
     win.selectedFiles = [];
     await this.loadFmFiles(win);
 },
+
 async loadFmFiles(win) {
     if (!win.selectedFmNode || !win.selectedFmDisk) return;
 
@@ -2016,8 +2392,7 @@ saveIconLayout() {
             alert('创建用户失败: ' + (error.response?.data?.message || error.message));
         }
     },
-
-    async updateNodePolicy(nodeId, policy) {
+async updateNodePolicy(nodeId, policy) {
     try {
         const res = await axios.put(
             `${this.apiBaseUrl}/api/node-policies/${nodeId}`,
@@ -2025,11 +2400,15 @@ saveIconLayout() {
         );
 
         if (res.data.success) {
-            // 更新本地数据
-            if (!this.windows.find(w => w.type === 'node-control')) {
-                const window = this.windows.find(w => w.type === 'node-control');
-                if (window && window.nodePolicies) {
-                    window.nodePolicies[nodeId] = policy;
+            // 更新本地节点数据
+            const permWindow = this.windows.find(w => w.type === 'permissions');
+            if (permWindow && permWindow.nodes) {
+                const node = permWindow.nodes.find(n => n.id === nodeId);
+                if (node) {
+                    node.access_policy = policy;
+                }
+                if (permWindow.nodePolicies) {
+                    permWindow.nodePolicies[nodeId] = policy;
                 }
             }
             alert('节点访问策略已更新');
@@ -2343,6 +2722,13 @@ async encryptDisk(window, nodeId, mount) {
     });
     if (res.data.success) {
       alert('磁盘加密已启用');
+      // 先立即更新本地状态
+      const disk = window.encryptionDisks.find(d => d.mount === mount);
+      if (disk) {
+        disk.is_encrypted = true;
+        disk.is_locked = false;
+      }
+      // 再刷新最新数据
       await this.loadEncryptionDisks(window);
     }
   } catch (err) {
@@ -2409,6 +2795,32 @@ async decryptDisk(window, nodeId, mount) {
   } catch (error) {
     console.error('解密请求失败:', error);
     alert('❌ 请求失败: ' + (error.response?.data?.error || error.message));
+  }
+},
+
+
+// 修改磁盘加密密码
+async changePassword(window, nodeId, mount) {
+  const newPassword = prompt(`请输入磁盘 ${mount} 的新密码：`);
+  if (!newPassword) return;
+
+  const confirmPassword = prompt('请再次确认新密码：');
+  if (newPassword !== confirmPassword) {
+    alert('两次输入的密码不一致');
+    return;
+  }
+
+  try {
+    const res = await axios.post(`${this.apiBaseUrl}/api/encryption/disk/change-password`, {
+      node_id: nodeId,
+      mount: mount,
+      new_password: newPassword
+    });
+    if (res.data.success) {
+      alert('密码修改成功');
+    }
+  } catch (err) {
+    alert('修改密码失败: ' + (err.response?.data?.error || err.message));
   }
 },
 
@@ -2556,10 +2968,7 @@ const res = await axios.put(
     },
 
 
-    getNodeName(nodeId) {
-        const node = this.availableNodes.find(n => n.id === nodeId);
-        return node ? node.name : nodeId;
-    },
+
 
     // ============================================
     // 用户节点权限管理

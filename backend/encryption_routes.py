@@ -12,45 +12,92 @@ encryption_bp = Blueprint('encryption', __name__)
 @encryption_bp.route('/api/encryption/disks', methods=['GET'])
 @login_required
 def list_encrypted_disks():
-    """返回所有节点磁盘的加密状态信息"""
+    """返回节点磁盘的加密状态信息（实时从节点获取，离线时用缓存）"""
     try:
-        conn = sqlite3.connect('nas_center.db')
-        cursor = conn.cursor()
-
         node_id = request.args.get('node_id')
 
         if node_id:
+            node = get_node_from_db(node_id)
+            if not node:
+                return jsonify({"success": False, "error": "节点不存在"}), 404
+
+            # 先检查节点是否在线
+            node_url = f"http://{node['ip']}:{node['port']}/api/disks"
+            headers = {"X-NAS-Secret": NAS_SHARED_SECRET}
+
+            try:
+                res = requests.get(node_url, headers=headers, timeout=5)
+                if res.status_code == 200:
+                    node_disks = res.json()
+                    disks = []
+                    for disk in node_disks:
+                        disks.append({
+                            "node_id": node_id,
+                            "mount": disk.get("mount"),
+                            "status": "online",
+                            "capacity_gb": disk.get("total_gb", 0),
+                            "is_encrypted": disk.get("is_encrypted", False),
+                            "is_locked": disk.get("is_locked", False)
+                        })
+                    return jsonify({"success": True, "disks": disks, "source": "realtime"})
+            except requests.exceptions.RequestException as e:
+                print(f"[管理端] 节点 {node_id} 离线，使用缓存数据: {e}")
+
+            # 节点离线，从数据库读取缓存
+            conn = sqlite3.connect('nas_center.db')
+            cursor = conn.cursor()
             cursor.execute('''
                 SELECT node_id, mount, status, capacity_gb, is_encrypted, is_locked
-                FROM node_disks
-                WHERE node_id = ?
+                FROM node_disks WHERE node_id = ?
             ''', (node_id,))
+            rows = cursor.fetchall()
+            conn.close()
+
+            disks = []
+            for row in rows:
+                disks.append({
+                    "node_id": row[0],
+                    "mount": row[1],
+                    "status": "offline",
+                    "capacity_gb": row[3],
+                    "is_encrypted": bool(row[4]),
+                    "is_locked": bool(row[5])
+                })
+
+            return jsonify({
+                "success": True,
+                "disks": disks,
+                "source": "cache",
+                "warning": "节点离线，显示缓存数据"
+            })
+
         else:
+            # 没有指定节点时，从本地数据库读取
+            conn = sqlite3.connect('nas_center.db')
+            cursor = conn.cursor()
             cursor.execute('''
                 SELECT node_id, mount, status, capacity_gb, is_encrypted, is_locked
                 FROM node_disks
             ''')
+            rows = cursor.fetchall()
+            conn.close()
 
-        rows = cursor.fetchall()
-        conn.close()
+            disks = []
+            for row in rows:
+                disks.append({
+                    "node_id": row[0],
+                    "mount": row[1],
+                    "status": row[2],
+                    "capacity_gb": row[3],
+                    "is_encrypted": bool(row[4]),
+                    "is_locked": bool(row[5])
+                })
 
-        disks = []
-        for row in rows:
-            disks.append({
-                "node_id": row[0],
-                "mount": row[1],
-                "status": row[2],
-                "capacity_gb": row[3],
-                "is_encrypted": bool(row[4]),
-                "is_locked": bool(row[5])
-            })
-
-        return jsonify({"success": True, "disks": disks})
+            return jsonify({"success": True, "disks": disks})
 
     except Exception as e:
         print(f"[管理端] 获取磁盘列表失败: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
-
 
 @encryption_bp.route('/api/encryption/disk/lock', methods=['POST'])
 @login_required

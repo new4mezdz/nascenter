@@ -1391,20 +1391,36 @@
     </button>
   </div>
 
-  <!-- 三栏布局 -->
+ <!-- 三栏布局 -->
   <div class="flex-1 flex overflow-hidden">
     <!-- 左栏：节点列表 -->
     <div class="w-48 border-r bg-white flex flex-col">
+      <!-- 跨节点存储 -->
+      <div v-if="window.crossEcVolume" class="border-b">
+        <div class="px-3 py-2 bg-gradient-to-r from-green-50 to-teal-50 text-sm font-semibold text-green-700">
+          🌐 跨节点存储
+        </div>
+        <div @click="selectCrossEcVolume(window)"
+             :class="window.selectedVolumeType === 'cross-ec' ? 'bg-green-50 border-l-4 border-green-500' : 'hover:bg-gray-50 border-l-4 border-transparent'"
+             class="px-3 py-2 cursor-pointer transition-all">
+          <div class="flex items-center gap-2">
+            <span class="text-lg">🛡️</span>
+            <span class="text-sm font-medium">EC纠删码卷</span>
+          </div>
+          <div class="text-xs text-gray-500 ml-6">K={{ window.crossEcVolume.k }}, M={{ window.crossEcVolume.m }}</div>
+        </div>
+      </div>
+
       <div class="px-3 py-2 bg-gray-50 border-b text-sm font-semibold text-gray-600">
         📡 节点
       </div>
       <div class="flex-1 overflow-auto">
         <div v-for="node in window.fmNodes" :key="node.id"
              @click="selectFmNode(window, node)"
-             :class="window.selectedFmNode?.id === node.id ? 'bg-blue-50 border-l-4 border-blue-500' : 'hover:bg-gray-50 border-l-4 border-transparent'"
+             :class="window.selectedFmNode?.id === node.id && window.selectedVolumeType !== 'cross-ec' ? 'bg-blue-50 border-l-4 border-blue-500' : 'hover:bg-gray-50 border-l-4 border-transparent'"
              class="px-3 py-2 cursor-pointer transition-all">
           <div class="flex items-center gap-2">
-            <span :class="node.online ? 'text-green-500' : 'text-gray-400'">●</span>
+            <span :class="node.status === 'online' ? 'text-green-500' : 'text-gray-400'">●</span>
             <span class="text-sm font-medium truncate">{{ node.name }}</span>
           </div>
           <div class="text-xs text-gray-500 ml-4 truncate">{{ node.ip }}</div>
@@ -1415,37 +1431,68 @@
       </div>
     </div>
 
-    <!-- 中栏：磁盘列表 -->
-    <div class="w-48 border-r bg-white flex flex-col">
+    <!-- 中栏：存储卷列表 -->
+    <div class="w-52 border-r bg-white flex flex-col">
       <div class="px-3 py-2 bg-gray-50 border-b text-sm font-semibold text-gray-600">
-        💾 磁盘
+        💾 存储卷
       </div>
       <div class="flex-1 overflow-auto">
         <div v-if="window.fmDisksLoading" class="flex items-center justify-center py-8">
           <div class="loading"></div>
         </div>
         <template v-else>
+          <!-- 单节点EC卷 -->
+          <div v-if="window.fmEcVolume"
+               @click="selectFmVolume(window, 'ec', window.fmEcVolume)"
+               :class="window.selectedVolumeType === 'single-ec' ? 'bg-green-50 border-l-4 border-green-500' : 'hover:bg-gray-50 border-l-4 border-transparent'"
+               class="px-3 py-2 cursor-pointer transition-all border-b">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">🛡️</span>
+              <span class="text-sm font-semibold text-green-700">EC纠删码卷</span>
+            </div>
+            <div class="text-xs text-gray-500 ml-6">K={{ window.fmEcVolume.k }}, M={{ window.fmEcVolume.m }}</div>
+          </div>
+
+          <!-- 存储池逻辑卷 -->
+          <div v-for="vol in window.fmPoolVolumes || []" :key="vol.name"
+               @click="selectFmVolume(window, 'pool', vol)"
+               :class="window.selectedVolumeType === 'pool' && window.selectedPoolVolume?.name === vol.name ? 'bg-purple-50 border-l-4 border-purple-500' : 'hover:bg-gray-50 border-l-4 border-transparent'"
+               class="px-3 py-2 cursor-pointer transition-all border-b">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">{{ vol.icon || '📦' }}</span>
+              <span class="text-sm font-semibold text-purple-700">{{ vol.display_name || vol.name }}</span>
+            </div>
+            <div class="text-xs text-gray-500 ml-6">逻辑卷</div>
+          </div>
+
+          <!-- 普通磁盘 -->
+          <div v-if="window.fmDisks?.length" class="px-3 py-1 bg-gray-100 text-xs text-gray-500">
+            普通磁盘
+          </div>
           <div v-for="disk in window.fmDisks" :key="disk.mount"
                @click="selectFmDisk(window, disk.mount)"
-               :class="window.selectedFmDisk === disk.mount ? 'bg-blue-50 border-l-4 border-blue-500' : 'hover:bg-gray-50 border-l-4 border-transparent'"
+               :class="window.selectedVolumeType === 'disk' && window.selectedFmDisk === disk.mount ? 'bg-blue-50 border-l-4 border-blue-500' : 'hover:bg-gray-50 border-l-4 border-transparent'"
                class="px-3 py-2 cursor-pointer transition-all">
             <div class="flex items-center gap-2">
               <span class="text-lg">💾</span>
               <span class="text-sm font-mono font-semibold">{{ disk.mount }}</span>
             </div>
             <div class="ml-6 mt-1">
-  <div class="text-xs text-gray-500">
-    {{ disk.free_gb || 0 }} GB / {{ disk.total_gb || 0 }} GB
-  </div>
-  <div class="mt-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-    <div class="h-full bg-blue-500" :style="{width: (disk.usage_percent || 0) + '%'}"></div>
-  </div>
-</div>
+              <div class="text-xs text-gray-500">
+                {{ disk.free_gb || 0 }} GB / {{ disk.total_gb || 0 }} GB
+              </div>
+              <div class="mt-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                <div class="h-full bg-blue-500" :style="{width: (disk.usage_percent || 0) + '%'}"></div>
+              </div>
+            </div>
           </div>
-          <div v-if="window.selectedFmNode && !window.fmDisks?.length" class="px-3 py-8 text-center text-gray-400 text-sm">
-            暂无磁盘
+
+          <div v-if="window.selectedFmNode && !window.fmDisks?.length && !window.fmEcVolume && !window.fmPoolVolumes?.length"
+               class="px-3 py-8 text-center text-gray-400 text-sm">
+            暂无存储卷
           </div>
-          <div v-if="!window.selectedFmNode" class="px-3 py-8 text-center text-gray-400 text-sm">
+          <div v-if="!window.selectedFmNode && window.selectedVolumeType !== 'cross-ec'"
+               class="px-3 py-8 text-center text-gray-400 text-sm">
             ← 请先选择节点
           </div>
         </template>
@@ -1863,8 +1910,8 @@
       </div>
       <div class="flex items-center gap-2">
         <span class="text-xs text-gray-600">访问策略:</span>
-        <select v-model="window.nodePolicies[node.id]"
-                @change="updateNodePolicy(node.id, $event.target.value)"
+        <select :value="node.access_policy || 'all_users'"
+        @change="updateNodePolicy(node.id, $event.target.value)"
                 class="px-3 py-1 border rounded text-sm">
           <option value="all_users">所有用户</option>
           <option value="admin_only">仅管理员</option>
@@ -2329,9 +2376,10 @@
         <!-- 节点磁盘选择 - 左右布局 -->
         <div class="flex gap-6">
           <!-- 左侧：节点列表 -->
-          <div class="w-72 bg-white rounded-lg shadow border p-4 flex-shrink-0">
+          <!-- 左侧：节点列表 -->
+          <div class="w-72 bg-white rounded-lg shadow border p-4 flex-shrink-0 flex flex-col">
             <h4 class="font-bold text-lg mb-4">选择节点</h4>
-            <div class="space-y-2 max-h-[400px] overflow-auto">
+            <div class="space-y-2 max-h-[300px] overflow-auto flex-shrink-0">
               <div v-for="node in (window.allNodes || [])" :key="node.id"
                 @click="selectNodeForCrossEc(window, node)"
                 :class="window.selectedCrossEcNode?.id === node.id ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:bg-gray-50'"
@@ -2354,8 +2402,21 @@
                 暂无可用节点
               </div>
             </div>
-          </div>
 
+            <!-- 已选磁盘汇总 -->
+            <div v-if="Object.keys(window.crossEcForm.selectedDisks || {}).length > 0" class="mt-4 pt-4 border-t flex-1 overflow-auto">
+              <h5 class="font-semibold mb-2 text-sm">已选磁盘 ({{ countSelectedCrossDisks(window) }})</h5>
+              <div class="space-y-1 text-xs">
+                <template v-for="(disks, nodeId) in window.crossEcForm.selectedDisks" :key="nodeId">
+                  <div v-for="disk in disks" :key="nodeId + disk"
+                       class="px-2 py-1 bg-green-100 text-green-700 rounded flex items-center justify-between">
+                    <span class="truncate">{{ getNodeName(window, nodeId) }} <span class="font-mono">{{ disk }}</span></span>
+                    <button @click="toggleDiskForCrossEc(window, nodeId, disk)" class="ml-1 text-green-800 hover:text-red-600 flex-shrink-0">&times;</button>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
           <!-- 右侧：磁盘选择 -->
           <div class="flex-1 min-w-0">
             <div v-if="!window.selectedCrossEcNode" class="h-full flex items-center justify-center bg-white rounded-lg shadow border min-h-[400px]">
@@ -2369,8 +2430,8 @@
               <div class="loading"></div>
             </div>
 
-            <div v-else class="bg-white rounded-lg shadow border p-6">
-              <div class="flex items-center justify-between mb-4">
+            <div v-else class="bg-white rounded-lg shadow border flex flex-col" style="max-height: 500px;">
+              <div class="flex items-center justify-between p-4 border-b flex-shrink-0">
                 <h4 class="font-bold text-lg flex items-center gap-2">
                   <span class="text-2xl">💿</span>
                   {{ window.selectedCrossEcNode.name }} - 选择磁盘
@@ -2381,65 +2442,51 @@
                 </button>
               </div>
 
-              <div v-if="window.crossEcNodeDisks && window.crossEcNodeDisks.length > 0" class="space-y-3">
-                <label v-for="disk in window.crossEcNodeDisks" :key="disk.mount"
-                       class="flex items-center gap-3 p-4 border-2 rounded-lg cursor-pointer transition-all hover:bg-gray-50"
-                       :class="isDiskSelectedForCrossEc(window, window.selectedCrossEcNode.id, disk.mount) ? 'border-green-500 bg-green-50' : 'border-gray-200'">
-                  <input type="checkbox"
-                         :checked="isDiskSelectedForCrossEc(window, window.selectedCrossEcNode.id, disk.mount)"
-                         @change="toggleDiskForCrossEc(window, window.selectedCrossEcNode.id, disk.mount)"
-                         class="w-5 h-5 accent-green-500">
-                  <div class="flex-1">
-                    <div class="flex items-center gap-2">
-                      <span class="text-2xl">💾</span>
-                      <span class="font-mono font-bold text-lg">{{ disk.mount }}</span>
-                      <span v-if="disk.ec_configured" class="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs">
-                        已有EC
-                      </span>
+              <!-- 磁盘列表 - 可滚动 -->
+              <div class="flex-1 overflow-auto p-4">
+                <div v-if="window.crossEcNodeDisks && window.crossEcNodeDisks.length > 0" class="space-y-3">
+                  <label v-for="disk in window.crossEcNodeDisks" :key="disk.mount"
+                         class="flex items-center gap-3 p-4 border-2 rounded-lg cursor-pointer transition-all hover:bg-gray-50"
+                         :class="isDiskSelectedForCrossEc(window, window.selectedCrossEcNode.id, disk.mount) ? 'border-green-500 bg-green-50' : 'border-gray-200'">
+                    <input type="checkbox"
+                           :checked="isDiskSelectedForCrossEc(window, window.selectedCrossEcNode.id, disk.mount)"
+                           @change="toggleDiskForCrossEc(window, window.selectedCrossEcNode.id, disk.mount)"
+                           class="w-5 h-5 accent-green-500">
+                    <div class="flex-1">
+                      <div class="flex items-center gap-2">
+                        <span class="text-2xl">💾</span>
+                        <span class="font-mono font-bold text-lg">{{ disk.mount }}</span>
+                        <span v-if="disk.ec_configured" class="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs">
+                          已有EC
+                        </span>
+                      </div>
+                      <div class="text-sm text-gray-600 mt-1">
+                        总容量: {{ disk.total_gb }} GB | 可用: <span class="text-green-600 font-semibold">{{ disk.free_gb }} GB</span> ({{ disk.usage_percent }}%)
+                      </div>
+                      <div class="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div class="h-full bg-blue-500" :style="{width: disk.usage_percent + '%'}"></div>
+                      </div>
                     </div>
-                    <div class="text-sm text-gray-600 mt-1">
-  总容量: {{ disk.total_gb }} GB |
-  可用: <span class="text-green-600 font-semibold">{{ disk.free_gb }} GB</span>
-  ({{ disk.usage_percent }}%)
-</div>
-<!-- 容量条 -->
-<div class="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">
-  <div class="h-full bg-blue-500" :style="{width: disk.usage_percent + '%'}"></div>
-</div>
-                  </div>
-                </label>
-              </div>
+                  </label>
+                </div>
 
-              <div v-else class="text-center text-gray-500 py-12">
-                <div class="text-5xl mb-4">💾</div>
-                <p>该节点暂无可用磁盘</p>
-              </div>
-
-              <!-- 已选磁盘汇总 -->
-              <div v-if="Object.keys(window.crossEcForm.selectedDisks || {}).length > 0" class="mt-6 pt-6 border-t">
-                <h5 class="font-semibold mb-3">已选磁盘汇总</h5>
-                <div class="flex flex-wrap gap-2">
-                  <template v-for="(disks, nodeId) in window.crossEcForm.selectedDisks" :key="nodeId">
-                    <span v-for="disk in disks" :key="nodeId + disk"
-                          class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm flex items-center gap-1">
-                      <span class="font-semibold">{{ getNodeName(window, nodeId) }}</span>
-                      <span class="font-mono">{{ disk }}</span>
-                      <button @click="toggleDiskForCrossEc(window, nodeId, disk)" class="ml-1 text-green-800 hover:text-red-600">&times;</button>
-                    </span>
-                  </template>
+                <div v-else class="text-center text-gray-500 py-12">
+                  <div class="text-5xl mb-4">💾</div>
+                  <p>该节点暂无可用磁盘</p>
                 </div>
               </div>
+
+              <!-- 创建按钮 - 固定底部 -->
+              <div class="p-4 border-t bg-gray-50 flex-shrink-0">
+                <button @click="saveCrossEcConfig(window)"
+                        :disabled="countSelectedCrossDisks(window) < window.crossEcForm.k + window.crossEcForm.m"
+                        :class="countSelectedCrossDisks(window) < window.crossEcForm.k + window.crossEcForm.m ? 'bg-gray-300 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'"
+                        class="w-full px-8 py-3 text-white rounded-lg font-semibold text-lg whitespace-nowrap">
+                  🛡️ 创建跨节点EC
+                </button>
+              </div>
             </div>
 
-            <!-- 创建按钮 -->
-            <div class="mt-6 flex justify-end">
-              <button @click="saveCrossEcConfig(window)"
-                      :disabled="countSelectedCrossDisks(window) < window.crossEcForm.k + window.crossEcForm.m"
-                      :class="countSelectedCrossDisks(window) < window.crossEcForm.k + window.crossEcForm.m ? 'bg-gray-300 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'"
-                      class="px-8 py-3 text-white rounded-lg font-semibold text-lg">
-                🛡️ 创建跨节点EC
-              </button>
-            </div>
           </div>
         </div>
       </div>
@@ -2475,7 +2522,7 @@
       </div>
 
       <!-- 右侧：单节点EC配置 -->
-      <div class="flex-1 min-w-0">
+      <div class="flex-1 min-w-0 overflow-auto">
         <div v-if="!window.selectedSingleEcNode" class="h-full flex items-center justify-center bg-white rounded-lg shadow border">
           <div class="text-center text-gray-400">
             <div class="text-6xl mb-4">👈</div>
@@ -2601,72 +2648,253 @@
       </div>
     </div>
 
+
     <!-- ========== 状态监控 ========== -->
-    <div v-else-if="window.ecTab === 'status'">
-      <div class="bg-white rounded-lg shadow border p-6">
-        <h4 class="font-bold text-lg mb-4">EC状态总览</h4>
-        <div class="text-center text-gray-500 py-12">
-          <div class="text-5xl mb-4">📊</div>
-          <p>状态监控功能开发中...</p>
-        </div>
-      </div>
-    </div>
+<div v-else-if="window.ecTab === 'status'">
+  <div class="flex justify-between items-center mb-4">
+    <h4 class="font-bold text-lg">EC状态总览</h4>
+    <button @click="loadEcStatus(window)" class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm">
+      🔄 刷新状态
+    </button>
+  </div>
 
-    <!-- ========== 上传文件 ========== -->
-    <div v-else-if="window.ecTab === 'upload'">
-      <div class="bg-white rounded-lg shadow border p-6 mb-6">
-        <h4 class="font-bold text-lg mb-4">上传文件到EC池</h4>
+  <div v-if="window.ecStatusLoading" class="text-center py-12">
+    <div class="loading"></div>
+    <p class="text-gray-500 mt-2">加载中...</p>
+  </div>
 
-        <!-- 选择目标EC -->
-        <div class="mb-6">
-          <label class="block text-sm font-semibold mb-2">选择目标EC池</label>
-          <select v-model="window.uploadTargetEc" class="w-full px-4 py-2 border rounded-lg">
-            <option value="">-- 请选择 --</option>
-            <option value="cross" v-if="window.crossEcConfig">跨节点EC池</option>
-            <option v-for="node in (window.allNodes || []).filter(n => n.ecConfigured)" :key="node.id" :value="node.id">
-              {{ node.name }} (单节点EC)
-            </option>
-          </select>
-        </div>
+  <div v-else>
+    <!-- 跨节点EC状态 -->
+    <div class="bg-white rounded-lg shadow border p-6 mb-6">
+      <h5 class="font-semibold text-lg mb-4 flex items-center gap-2">
+        <span class="text-2xl">🌐</span> 跨节点EC状态
+      </h5>
 
-        <!-- 拖拽上传区域 -->
-        <div class="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-green-500 transition-all"
-             @dragover.prevent
-             @drop.prevent="handleEcFileDrop">
-          <div class="text-6xl mb-4">📤</div>
-          <p class="text-gray-600 mb-4">拖拽文件到此处，或点击选择文件</p>
-          <input type="file" ref="ecFileInput" multiple class="hidden" @change="handleEcFileSelect">
-          <button @click="$refs.ecFileInput.click()" class="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600">
-            选择文件
-          </button>
-        </div>
-
-        <!-- 待上传文件列表 -->
-        <div v-if="window.ecUploadFiles && window.ecUploadFiles.length > 0" class="mt-6">
-          <h5 class="font-semibold mb-3">待上传文件 ({{ window.ecUploadFiles.length }})</h5>
-          <div class="max-h-60 overflow-auto border rounded-lg">
-            <div v-for="(file, index) in window.ecUploadFiles" :key="index"
-                 class="flex items-center gap-3 p-3 border-b last:border-b-0 hover:bg-gray-50">
-              <span class="text-2xl">📄</span>
-              <div class="flex-1 min-w-0">
-                <div class="font-medium truncate">{{ file.name }}</div>
-                <div class="text-xs text-gray-500">{{ formatBytes(file.size) }}</div>
-              </div>
-              <button @click="window.ecUploadFiles.splice(index, 1)" class="text-red-500 hover:text-red-700">&times;</button>
+      <div v-if="window.ecStatus?.cross_ec" class="space-y-4">
+        <div class="grid grid-cols-5 gap-4">
+          <div class="bg-green-50 p-4 rounded-lg text-center">
+            <div class="text-sm text-gray-600 mb-1">状态</div>
+            <div class="text-xl font-bold text-green-600 flex items-center justify-center gap-1">
+              <span class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
+              运行中
             </div>
           </div>
+          <div class="bg-blue-50 p-4 rounded-lg text-center">
+            <div class="text-sm text-gray-600 mb-1">数据块 (K)</div>
+            <div class="text-2xl font-bold text-blue-600">{{ window.ecStatus.cross_ec.k }}</div>
+          </div>
+          <div class="bg-purple-50 p-4 rounded-lg text-center">
+            <div class="text-sm text-gray-600 mb-1">校验块 (M)</div>
+            <div class="text-2xl font-bold text-purple-600">{{ window.ecStatus.cross_ec.m }}</div>
+          </div>
+          <div class="bg-orange-50 p-4 rounded-lg text-center">
+            <div class="text-sm text-gray-600 mb-1">参与节点</div>
+            <div class="text-2xl font-bold text-orange-600">{{ window.ecStatus.cross_ec.nodes?.length || 0 }}</div>
+          </div>
+          <div class="bg-teal-50 p-4 rounded-lg text-center">
+            <div class="text-sm text-gray-600 mb-1">总磁盘数</div>
+            <div class="text-2xl font-bold text-teal-600">{{ window.ecStatus.cross_ec.total_disks }}</div>
+          </div>
+        </div>
 
-          <div class="mt-4 flex justify-end">
-            <button @click="startEcUpload(window)"
-                    :disabled="!window.uploadTargetEc"
-                    :class="!window.uploadTargetEc ? 'bg-gray-300 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'"
-                    class="px-8 py-3 text-white rounded-lg font-semibold">
-              🚀 开始上传
-            </button>
+        <!-- 节点健康状态 -->
+        <div class="border-t pt-4">
+          <h6 class="font-semibold mb-3">节点健康状态</h6>
+          <div class="grid grid-cols-2 gap-3">
+            <div v-for="nodeInfo in window.ecStatus.cross_ec.nodes" :key="nodeInfo.nodeId"
+                 class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border">
+              <span class="w-3 h-3 rounded-full" :class="nodeInfo.online !== false ? 'bg-green-500' : 'bg-red-500'"></span>
+              <div class="flex-1">
+                <div class="font-semibold">{{ nodeInfo.nodeName || nodeInfo.nodeId }}</div>
+                <div class="text-xs text-gray-500">{{ nodeInfo.disks?.length || 0 }} 个磁盘</div>
+              </div>
+              <span class="text-xs px-2 py-1 rounded" :class="nodeInfo.online !== false ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'">
+                {{ nodeInfo.online !== false ? '在线' : '离线' }}
+              </span>
+            </div>
           </div>
         </div>
       </div>
+
+      <div v-else class="text-center py-8 text-gray-500">
+        <div class="text-4xl mb-2">📭</div>
+        <p>未配置跨节点EC</p>
+        <button @click="window.ecTab = 'cross-node'" class="mt-2 text-green-600 hover:underline text-sm">
+          去配置 →
+        </button>
+      </div>
     </div>
+
+    <!-- 单节点EC状态 -->
+    <div class="bg-white rounded-lg shadow border p-6">
+      <h5 class="font-semibold text-lg mb-4 flex items-center gap-2">
+        <span class="text-2xl">💾</span> 单节点EC状态
+      </h5>
+
+      <div v-if="window.ecStatus?.single_ec_nodes?.length > 0" class="space-y-3">
+        <div v-for="node in window.ecStatus.single_ec_nodes" :key="node.node_id"
+             class="flex items-center gap-4 p-4 bg-gray-50 rounded-lg border hover:bg-gray-100">
+          <div class="w-12 h-12 bg-white rounded-lg shadow flex items-center justify-center text-2xl">🖥️</div>
+          <div class="flex-1">
+            <div class="font-semibold">{{ node.node_name }}</div>
+            <div class="text-xs text-gray-500">{{ node.ip }}</div>
+          </div>
+          <div class="text-center px-4">
+            <div class="text-xs text-gray-500">K / M</div>
+            <div class="font-bold text-blue-600">{{ node.config.k }} / {{ node.config.m }}</div>
+          </div>
+          <div class="text-center px-4">
+            <div class="text-xs text-gray-500">磁盘数</div>
+            <div class="font-bold text-purple-600">{{ node.config.disks?.length || 0 }}</div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full" :class="node.online ? 'bg-green-500 animate-pulse' : 'bg-red-500'"></span>
+            <span class="text-sm" :class="node.online ? 'text-green-600' : 'text-red-600'">
+              {{ node.online ? '健康' : '异常' }}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div v-else class="text-center py-8 text-gray-500">
+        <div class="text-4xl mb-2">📭</div>
+        <p>暂无单节点EC配置</p>
+        <button @click="window.ecTab = 'single-node'" class="mt-2 text-green-600 hover:underline text-sm">
+          去配置 →
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+    <!-- ========== 上传文件 ========== -->
+<div v-else-if="window.ecTab === 'upload'">
+  <div class="bg-white rounded-lg shadow border p-6 mb-6">
+    <h4 class="font-bold text-lg mb-4">📤 上传文件到EC池</h4>
+
+    <!-- 选择目标EC -->
+    <div class="mb-6">
+      <label class="block text-sm font-semibold mb-2">选择目标EC池</label>
+      <select v-model="window.uploadTargetEc" @change="loadEcFiles(window)" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500">
+        <option value="">-- 请选择 --</option>
+        <option value="cross" v-if="window.crossEcConfig">🌐 跨节点EC池 (K={{ window.crossEcConfig.k }}, M={{ window.crossEcConfig.m }})</option>
+        <option v-for="node in (window.allNodes || []).filter(n => n.ecConfigured)" :key="node.id" :value="node.id">
+          💾 {{ node.name }} (单节点EC)
+        </option>
+      </select>
+      <p v-if="!window.crossEcConfig && !(window.allNodes || []).some(n => n.ecConfigured)"
+         class="text-sm text-red-500 mt-2">
+        ⚠️ 暂无可用的EC池，请先配置EC
+      </p>
+    </div>
+
+    <!-- 拖拽上传区域 -->
+    <div class="border-2 border-dashed rounded-lg p-12 text-center transition-all"
+         :class="window.dragOver ? 'border-green-500 bg-green-50' : 'border-gray-300 hover:border-green-400'"
+         @dragover.prevent="window.dragOver = true"
+         @dragleave.prevent="window.dragOver = false"
+         @drop.prevent="handleEcFileDrop($event, window); window.dragOver = false">
+      <div class="text-6xl mb-4">{{ window.dragOver ? '📥' : '📤' }}</div>
+      <p class="text-gray-600 mb-4">拖拽文件到此处，或点击选择文件</p>
+      <input type="file" :id="'ecFileInput' + window.id" multiple class="hidden" @change="handleEcFileSelect($event, window)">
+<button @click="triggerEcFileInput(window)"
+              class="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600">
+        选择文件
+      </button>
+    </div>
+
+    <!-- 待上传文件列表 -->
+    <div v-if="window.ecUploadFiles && window.ecUploadFiles.length > 0" class="mt-6">
+      <div class="flex justify-between items-center mb-3">
+        <h5 class="font-semibold">待上传文件 ({{ window.ecUploadFiles.length }})</h5>
+        <button @click="window.ecUploadFiles = []" class="text-sm text-red-500 hover:text-red-700">
+          清空列表
+        </button>
+      </div>
+      <div class="max-h-60 overflow-auto border rounded-lg">
+        <div v-for="(file, index) in window.ecUploadFiles" :key="index"
+             class="flex items-center gap-3 p-3 border-b last:border-b-0 hover:bg-gray-50">
+          <span class="text-2xl">{{ getFileIcon(file.name) }}</span>
+          <div class="flex-1 min-w-0">
+            <div class="font-medium truncate">{{ file.name }}</div>
+            <div class="text-xs text-gray-500">{{ formatFileSize(file.size) }}</div>
+          </div>
+          <div v-if="file.progress !== undefined" class="w-24">
+            <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div class="h-full bg-green-500 transition-all" :style="{width: file.progress + '%'}"></div>
+            </div>
+            <div class="text-xs text-center text-gray-500 mt-1">{{ file.progress }}%</div>
+          </div>
+          <span v-if="file.status === 'success'" class="text-green-500">✓</span>
+          <span v-else-if="file.status === 'error'" class="text-red-500">✗</span>
+          <button v-else @click="window.ecUploadFiles.splice(index, 1)"
+                  class="text-gray-400 hover:text-red-500 text-xl">&times;</button>
+        </div>
+      </div>
+
+      <!-- 上传进度统计 -->
+      <div v-if="window.uploadingEc" class="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+        <div class="flex items-center gap-3">
+          <div class="loading"></div>
+          <div>
+            <div class="font-semibold text-blue-800">正在上传...</div>
+            <div class="text-sm text-blue-600">
+              已完成 {{ window.uploadedCount || 0 }} / {{ window.ecUploadFiles.length }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-4 flex justify-end gap-3">
+        <button @click="window.ecUploadFiles = []"
+                :disabled="window.uploadingEc"
+                class="px-4 py-2 border rounded-lg hover:bg-gray-100 disabled:opacity-50">
+          取消
+        </button>
+        <button @click="startEcUpload(window)"
+                :disabled="!window.uploadTargetEc || window.uploadingEc"
+                :class="!window.uploadTargetEc || window.uploadingEc ? 'bg-gray-300 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'"
+                class="px-8 py-2 text-white rounded-lg font-semibold">
+          {{ window.uploadingEc ? '上传中...' : '🚀 开始上传' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 已上传文件列表 -->
+  <div class="bg-white rounded-lg shadow border p-6">
+    <div class="flex justify-between items-center mb-4">
+      <h4 class="font-bold text-lg">📁 EC池文件列表</h4>
+      <button @click="loadEcFiles(window)" class="px-3 py-1 text-sm bg-gray-100 rounded hover:bg-gray-200">
+        🔄 刷新
+      </button>
+    </div>
+
+    <div v-if="window.ecFilesLoading" class="text-center py-8">
+      <div class="loading"></div>
+    </div>
+
+    <div v-else-if="window.ecFiles && window.ecFiles.length > 0" class="space-y-2">
+      <div v-for="file in window.ecFiles" :key="file.id"
+           class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100">
+        <span class="text-2xl">{{ getFileIcon(file.name) }}</span>
+        <div class="flex-1 min-w-0">
+          <div class="font-medium truncate">{{ file.name }}</div>
+          <div class="text-xs text-gray-500">
+            {{ formatFileSize(file.size) }} · {{ file.created_at }}
+          </div>
+        </div>
+        <span class="text-xs px-2 py-1 bg-green-100 text-green-700 rounded">
+          {{ file.ec_type === 'cross' ? '跨节点' : '单节点' }}
+        </span>
+      </div>
+    </div>
+
+    <div v-else class="text-center py-8 text-gray-500">
+      <div class="text-4xl mb-2">📭</div>
+      <p>暂无文件</p>
+    </div>
+  </div>
+</div>
 
   </div>
 </div>
@@ -2674,54 +2902,78 @@
           <!-- 系统监控窗口 -->
 <div v-if="window.type === 'system-monitor'" class="h-full flex flex-col">
   <div v-if="window.monitorView === 'overview'" class="h-full flex flex-col">
-    <div class="px-6 py-4 border-b bg-gradient-to-r from-green-50 to-teal-50">
-      <h3 class="text-xl font-bold flex items-center gap-2">
-        <span class="text-3xl">📊</span>
-        系统监控总览
-      </h3>
-      <p class="text-sm text-gray-600 mt-1">选择一个节点查看详细信息</p>
+  <div class="px-6 py-5 border-b bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900">
+    <h3 class="text-2xl font-bold flex items-center gap-3 text-white">
+      <span class="w-10 h-10 bg-gradient-to-br from-emerald-400 to-cyan-500 rounded-xl flex items-center justify-center shadow-lg">📊</span>
+      系统监控总览
+    </h3>
+    <p class="text-sm text-slate-400 mt-2 ml-13">选择一个节点查看详细硬件信息</p>
+  </div>
+  <div class="flex-1 overflow-auto p-6 bg-gradient-to-br from-slate-100 to-slate-200">
+    <div v-if="window.loading" class="flex justify-center items-center h-full">
+      <div class="loading"></div> <span class="ml-2 text-gray-600">正在加载节点...</span>
     </div>
-    <div class="flex-1 overflow-auto p-6 bg-gray-50">
-      <div v-if="window.loading" class="flex justify-center items-center h-full">
-        <div class="loading"></div> <span class="ml-2 text-gray-600">正在加载节点...</span>
-      </div>
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <div v-for="node in window.nodes" :key="node.id"
-             @click="selectNodeForMonitor(window, node)"
-             class="bg-white rounded-lg shadow border p-6 cursor-pointer hover:border-blue-500 hover:shadow-lg transition">
-          <div class="flex justify-between items-start">
-            <h4 class="font-bold text-lg mb-4 text-gray-800">{{ node.name }}</h4>
-            <span class="text-3xl">🖥️</span>
-          </div>
-          <div class="space-y-4">
-            <div>
-              <div class="text-xs text-gray-600 mb-1">磁盘容量</div>
-              <div class="w-full bg-gray-200 rounded-full h-4">
-                <div class="h-4 rounded-full flex items-center justify-center text-xs font-semibold"
-                     :class="node.disk_usage > 80 ? 'bg-red-500 text-white' : 'bg-blue-500 text-white'"
-                     :style="{ width: node.disk_usage + '%' }">
-                  {{ node.disk_usage.toFixed(1) }}%
-                </div>
+    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div v-for="node in window.nodes" :key="node.id"
+           @click="selectNodeForMonitor(window, node)"
+           class="group relative bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden cursor-pointer hover:shadow-2xl hover:border-emerald-400 hover:-translate-y-1 transition-all duration-300">
+        <div class="h-1.5 w-full bg-gradient-to-r from-emerald-400 via-cyan-500 to-blue-500"></div>
+        <div class="p-6">
+          <div class="flex justify-between items-center mb-5">
+            <div class="flex items-center gap-3">
+              <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300">
+                <span class="text-2xl">🖥️</span>
               </div>
-              <div class="text-xs text-gray-600 mt-1 text-right">
-                {{ node.used_storage.toFixed(1) }} / {{ node.total_storage.toFixed(1) }} GB
-              </div>
-            </div>
-            <div>
-              <div class="text-xs text-gray-600 mb-1">CPU 温度</div>
-              <div class="flex items-center gap-2">
-                <span class="text-2xl">🌡️</span>
-                <span class="text-3xl font-bold"
-                      :class="node.cpu_temp > 75 ? 'text-red-600' : 'text-orange-500'">
-                  {{ node.cpu_temp.toFixed(1) }}°C
+              <div>
+                <h4 class="font-bold text-lg text-slate-800">{{ node.name }}</h4>
+                <span class="inline-flex items-center gap-1 text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                  <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
+                  在线
                 </span>
               </div>
+            </div>
+            <div class="text-slate-400 group-hover:text-emerald-500 transition-colors">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+              </svg>
+            </div>
+          </div>
+          <div class="mb-5">
+            <div class="flex justify-between items-center mb-2">
+              <span class="text-xs font-medium text-slate-500 flex items-center gap-1">
+                <span>💾</span> 磁盘容量
+              </span>
+              <span class="text-xs font-bold" :class="node.disk_usage > 80 ? 'text-red-500' : 'text-slate-700'">
+                {{ node.disk_usage.toFixed(1) }}%
+              </span>
+            </div>
+            <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+              <div class="h-2.5 rounded-full transition-all duration-500"
+                   :class="node.disk_usage > 80 ? 'bg-gradient-to-r from-red-400 to-red-500' : 'bg-gradient-to-r from-emerald-400 to-cyan-500'"
+                   :style="{ width: node.disk_usage + '%' }">
+              </div>
+            </div>
+            <div class="text-xs text-slate-400 mt-1.5 text-right">
+              {{ node.used_storage.toFixed(1) }} / {{ node.total_storage.toFixed(1) }} GB
+            </div>
+          </div>
+          <div class="flex items-center justify-between p-3 bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl">
+            <span class="text-xs font-medium text-slate-500 flex items-center gap-1">
+              <span>🌡️</span> CPU 温度
+            </span>
+            <div class="flex items-center gap-1">
+              <span class="text-2xl font-bold"
+                    :class="node.cpu_temp > 75 ? 'text-red-500' : node.cpu_temp > 60 ? 'text-orange-500' : 'text-emerald-500'">
+                {{ node.cpu_temp.toFixed(1) }}
+              </span>
+              <span class="text-sm text-slate-400">°C</span>
             </div>
           </div>
         </div>
       </div>
     </div>
   </div>
+</div>
 
   <div v-else-if="window.monitorView === 'detail'" class="h-full flex flex-col">
   <div class="px-6 py-4 border-b bg-gradient-to-r from-green-50 to-teal-50 flex justify-between items-center">
