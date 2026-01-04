@@ -21,14 +21,14 @@ const helpContent = {
             title: '快速入门',
             blocks: [
                 { type: 'text', content: '欢迎使用 NAS Center 管理系统！本章将引导您快速了解系统的基本操作流程。' },
-                { type: 'image', src: '/images/help/overview.png', caption: '系统主界面概览' },
+                { type: 'image', src: '/images/help/1.png', caption: '系统主界面概览' },
 
                { type: 'heading', content: '第一步：配置节点' },
 { type: 'text', content: '节点是您的NAS存储设备。首先需要在节点设备上完成配置，使其注册到管理系统。' },
 { type: 'steps', items: [
-    { title: '启动节点服务', text: '在NAS设备上安装并启动节点服务', image: '/images/help/step-start-node.png' },
-    { title: '访问配置页面', text: '浏览器打开节点地址，进入配置向导', image: '/images/help/step-setup-page.png' },
-    { title: '填写配置信息', text: '输入管理端地址、节点ID和共享密钥，点击保存', image: '/images/help/step-setup-form.png' }
+    { title: '启动节点服务', text: '在NAS设备上安装并启动节点服务', image: '/images/help/2.png' },
+    { title: '访问配置页面', text: '浏览器打开节点地址，进入配置向导', image: '/images/help/3.png' },
+    { title: '填写配置信息', text: '输入管理端地址、节点ID和共享密钥，点击保存', }
 ]},
 { type: 'tip', content: '配置成功后，节点会自动出现在管理端的"节点管理"中。' },
                 { type: 'tip', content: '确保节点设备已开机，且与管理端在同一网络中。' },
@@ -51,7 +51,7 @@ const helpContent = {
             title: '节点管理',
             blocks: [
                 { type: 'text', content: '节点管理是系统的核心功能，用于管理所有连接的NAS存储设备。您可以添加、删除、重命名节点，以及查看节点状态。' },
-                { type: 'image', src: '/images/help/node-list.png', caption: '节点管理界面' },
+                { type: 'image', src: '/images/help/4.png', caption: '节点管理界面' },
 
                 { type: 'heading', content: '节点状态说明' },
                 { type: 'list', items: [
@@ -70,7 +70,7 @@ const helpContent = {
     { title: '输入共享密钥', text: '输入与管理端配置一致的通信密钥' },
     { title: '测试并保存', text: '点击"测试连接"确认无误后，保存配置完成注册' }
 ]},
-{ type: 'image', src: '/images/help/node-setup.png', caption: '节点配置向导' },
+{ type: 'image', src: '/images/help/3.png', caption: '节点配置向导' },
 { type: 'tip', content: '配置成功后，节点会自动出现在管理端的节点列表中。' },
 { type: 'warning', content: '共享密钥必须与管理端配置的密钥完全一致，否则无法连接。' },
                 { type: 'tip', content: '添加前请确保节点已安装并运行 NAS Center 节点服务。' },
@@ -83,7 +83,7 @@ const helpContent = {
                     { label: '重命名', desc: '修改节点的显示名称，便于识别' },
                     { label: '删除', desc: '从管理系统中移除该节点' }
                 ]},
-                { type: 'image', src: '/images/help/node-actions.png', caption: '节点操作按钮' },
+                { type: 'image', src: '/images/help/5.png', caption: '节点操作按钮' },
                 { type: 'warning', content: '删除节点只是从管理系统中移除，不会影响节点设备上的数据。' }
             ]
         },
@@ -94,7 +94,7 @@ space: {
     title: '空间分配',
     blocks: [
         { type: 'text', content: '空间分配功能允许您管理存储资源，包括单节点存储池和跨节点存储池的配置与管理。' },
-        { type: 'image', src: '/images/help/space-allocation.png', caption: '空间分配界面' },
+        { type: 'image', src: '/images/help/6.png', caption: '空间分配界面' },
 
         { type: 'heading', content: '存储池类型' },
         { type: 'list', items: [
@@ -113,7 +113,7 @@ space: {
 
         { type: 'heading', content: '跨节点存储池' },
         { type: 'text', content: '跨节点存储池将多个节点的存储空间整合为统一的存储池，实现容量扩展和数据保护。' },
-        { type: 'image', src: '/images/help/crossnode-pool.png', caption: '跨节点存储池架构' },
+        { type: 'image', src: '/images/help/7.png', caption: '跨节点存储池架构' },
 
         { type: 'heading', content: '创建跨节点存储池' },
         { type: 'steps', items: [
@@ -139,16 +139,14 @@ space: {
         ]},
         { type: 'tip', content: '扩容操作不会中断服务，但数据重平衡期间性能可能受影响。' },
 
-        { type: 'heading', content: '用户空间配额' },
-        { type: 'text', content: '可以为用户设置存储配额，限制其可使用的存储空间。' },
-        { type: 'steps', items: [
-            { title: '选择用户', text: '在用户列表中选择要设置配额的用户' },
-            { title: '设置配额', text: '输入配额大小（单位：GB）' },
-            { title: '保存设置', text: '点击保存按钮使配额生效' }
-        ]},
-        { type: 'tip', content: '设置为0表示不限制配额。' },
-
-        { type: 'warning', content: '跨节点存储池需要稳定的网络连接，节点离线可能影响数据访问。' }
+        { type: 'heading', content: '用户专属空间' },
+{ type: 'text', content: '可以为用户创建专属的存储空间，通过逻辑卷+加密实现隔离。' },
+{ type: 'steps', items: [
+    { title: '创建逻辑卷', text: '在存储池中创建以用户名命名的逻辑卷（如 zhangsan、lisi）' },
+    { title: '设置容量', text: '指定逻辑卷大小，即该用户可用的存储空间' },
+    { title: '启用加密', text: '对逻辑卷进行加密，确保数据隔离和安全' }
+]},
+{ type: 'tip', content: '通过逻辑卷大小控制用户可用空间，加密确保其他用户无法访问。' },
     ]
 },
 
@@ -156,15 +154,29 @@ space: {
         permission: {
             title: '权限设置',
             blocks: [
-                { type: 'text', content: '权限设置用于管理用户账户和访问权限，控制用户可以访问哪些节点。' },
-                { type: 'image', src: '/images/help/permission-overview.png', caption: '权限设置界面' },
-
                 { type: 'heading', content: '用户管理' },
-                { type: 'text', content: '在用户管理标签页中，您可以查看所有用户、创建新用户、修改用户信息或删除用户。' },
-                { type: 'list', items: [
-                    { label: '管理员', desc: '拥有系统全部权限，可访问所有节点' },
-                    { label: '普通用户', desc: '根据权限配置访问指定节点' }
-                ]},
+{ type: 'text', content: '在用户管理标签页中，您可以查看所有用户、创建新用户、修改用户信息或删除用户。' },
+
+{ type: 'heading', content: '用户角色' },
+{ type: 'list', items: [
+    { label: '👑 管理员', desc: '拥有系统全部权限，可访问所有节点、管理用户、修改系统设置' },
+    { label: '👤 普通用户', desc: '根据权限配置访问指定节点，可进行文件操作' },
+    { label: '👁️ 访客', desc: '受限访问，通常只能查看，不能修改' }
+]},
+
+{ type: 'heading', content: '文件权限' },
+{ type: 'list', items: [
+    { label: '👁️ 只读', desc: '只能浏览和下载文件，不能上传、删除或修改' },
+    { label: '✏️ 读写', desc: '可以浏览、下载、上传文件，可以创建文件夹' },
+    { label: '🔓 完全控制', desc: '拥有所有文件操作权限，包括删除、重命名、移动等' }
+]},
+
+{ type: 'heading', content: '节点权限' },
+{ type: 'list', items: [
+    { label: '✓ 所有节点', desc: '用户可访问系统中的所有节点' },
+    { label: '📁 按分组', desc: '用户只能访问指定分组内的节点' },
+    { label: '🎯 自定义', desc: '手动指定用户可访问的具体节点列表' }
+]},
 
                 { type: 'heading', content: '节点分组' },
                 { type: 'text', content: '您可以将节点按用途或位置分组，便于批量授权。' },
@@ -173,7 +185,7 @@ space: {
                     { title: '添加节点', text: '选择要加入该分组的节点' },
                     { title: '保存分组', text: '点击保存完成分组创建' }
                 ]},
-                { type: 'image', src: '/images/help/node-group.png', caption: '节点分组管理' },
+                { type: 'image', src: '/images/help/9.png', caption: '节点分组管理' },
 
                 { type: 'heading', content: '用户权限类型' },
                 { type: 'text', content: '为用户分配节点访问权限时，有以下三种模式：' },
@@ -182,38 +194,84 @@ space: {
                     { label: '按分组', desc: '用户可访问指定分组内的所有节点' },
                     { label: '自定义', desc: '手动指定用户可访问的具体节点' }
                 ]},
-                { type: 'tip', content: '推荐使用"按分组"模式，便于统一管理和后续维护。' }
+                { type: 'tip', content: '推荐使用"按分组"模式，便于统一管理和后续维护。' },
+
+                { type: 'heading', content: '节点控制' },
+{ type: 'text', content: '节点控制允许管理员为每个节点单独设置访问策略，控制哪些用户可以访问该节点。' },
+{ type: 'image', src: '/images/help/10.png', caption: '节点控制界面' },
+{ type: 'list', items: [
+    { label: '所有用户', desc: '任何已登录用户都可以访问该节点' },
+    { label: '仅管理员', desc: '只有管理员角色可以访问' },
+    { label: '白名单用户', desc: '只有白名单中的用户可以访问' },
+    { label: '禁止访问', desc: '所有用户都无法访问该节点' },
+        { type: 'image', src: '/images/help/11.png', caption: '访问策略界面' },
+]},
+
+{ type: 'heading', content: '白名单管理' },
+{ type: 'text', content: '当节点设置为"白名单用户"策略时，只有在白名单中的用户才能访问。' },
+{ type: 'steps', items: [
+    { title: '添加用户', text: '在下拉菜单中选择要加入白名单的用户' },
+    { title: '查看列表', text: '右侧显示当前白名单中的所有用户' },
+    { title: '移除用户', text: '点击用户旁的"移除"按钮可将其从白名单删除' }
+]},
+{ type: 'tip', content: '白名单是全局的，加入白名单的用户可以访问所有设置为"白名单用户"策略的节点。' },
             ]
         },
 
         // ========== 加密管理 ==========
         encryption: {
-            title: '加密管理',
-            blocks: [
-                { type: 'text', content: '加密管理功能用于保护节点磁盘数据安全，支持对磁盘进行加密、解密、锁定和解锁操作。' },
-                { type: 'image', src: '/images/help/encryption-manager.png', caption: '加密管理界面' },
+    title: '加密管理',
+    blocks: [
+        { type: 'text', content: '加密管理功能用于保护节点磁盘数据安全，支持对磁盘进行加密、解密、锁定和解锁操作。' },
 
-                { type: 'heading', content: '磁盘加密状态' },
-                { type: 'list', items: [
-                    { label: '未加密', desc: '磁盘未启用加密保护' },
-                    { label: '已加密（已解锁）', desc: '磁盘已加密，当前处于解锁状态，可正常读写' },
-                    { label: '已加密（已锁定）', desc: '磁盘已加密且已锁定，需要输入密码解锁后才能访问' }
-                ]},
+        { type: 'heading', content: '总览页面' },
+        { type: 'text', content: '进入加密管理后首先看到节点总览页面，显示所有节点的加密状态概览。' },
+        { type: 'image', src: '/images/help/11.png', caption: '加密管理总览' },
+        { type: 'list', items: [
+            { label: '总节点数', desc: '系统中所有已添加的节点数量' },
+            { label: '在线节点', desc: '当前处于在线状态的节点数量' },
+            { label: '已加密节点', desc: '至少有一个磁盘已加密的节点数量' },
+            { label: '已锁定磁盘', desc: '所有节点中处于锁定状态的磁盘总数' }
+        ]},
+        { type: 'tip', content: '点击任意节点卡片可进入该节点的磁盘加密管理页面。' },
 
-                { type: 'heading', content: '加密磁盘' },
-                { type: 'steps', items: [
-                    { title: '选择磁盘', text: '在磁盘列表中选择要加密的磁盘' },
-                    { title: '点击加密', text: '点击"加密"按钮' },
-                    { title: '设置密码', text: '输入加密密码并确认' },
-                    { title: '等待完成', text: '等待加密过程完成' }
-                ]},
-                { type: 'warning', content: '加密密码非常重要！遗忘密码将无法恢复数据，请务必妥善保管。' },
+        { type: 'heading', content: '磁盘加密管理' },
+        { type: 'text', content: '选择节点后进入磁盘加密管理页面，可查看和操作该节点的所有磁盘。' },
+        { type: 'image', src: '/images/help/12.png', caption: '磁盘加密管理' },
 
-                { type: 'heading', content: '锁定与解锁' },
-                { type: 'text', content: '已加密的磁盘可以随时锁定，锁定后需要输入密码才能解锁访问。' },
-                { type: 'tip', content: '建议在不使用时锁定加密磁盘，提高数据安全性。' }
-            ]
-        },
+        { type: 'heading', content: '磁盘状态说明' },
+        { type: 'list', items: [
+            { label: '系统保护', desc: '系统盘（C:、D:）自动排除，不可进行加密操作' },
+            { label: '未加密', desc: '磁盘未启用加密保护，可点击"启用加密"' },
+            { label: '✅ 已加密', desc: '磁盘已加密且已解锁，可正常读写' },
+            { label: '🔒 已锁定', desc: '磁盘已加密且已锁定，需输入密码解锁后才能访问' }
+        ]},
+
+       { type: 'heading', content: '磁盘操作' },
+{ type: 'list', items: [
+    { label: '🔐 启用加密', desc: '对未加密的磁盘进行加密，设置密码后磁盘数据将被保护' },
+    { label: '🔓 解锁', desc: '输入密码解锁磁盘，密码保存在内存中实时解密，重启后需重新解锁' },
+    { label: '🔒 锁定', desc: '清除内存中的密码，磁盘立即变为不可访问，文件管理中无法浏览' },
+    { label: '🧹 永久解密', desc: '彻底移除加密保护，磁盘恢复为普通状态，数据变为明文存储' },
+    { label: '🔑 改密码', desc: '修改加密密码，需要先输入旧密码验证身份' }
+]},
+
+{ type: 'heading', content: '锁定与解锁原理' },
+{ type: 'text', content: '磁盘加密采用实时加解密机制，解锁时密码保存在内存中，读写数据时自动进行加解密操作。' },
+{ type: 'list', items: [
+    { label: '已锁定状态', desc: '文件管理中无法浏览该磁盘内容，显示为不可访问' },
+    { label: '已解锁状态', desc: '可正常浏览和读写文件，与普通磁盘使用体验一致' },
+    { label: '重启后', desc: '节点重启后加密磁盘自动变为锁定状态，需重新输入密码解锁' }
+]},
+{ type: 'tip', content: '建议在不使用时锁定加密磁盘，即使设备被盗也无法读取数据。' },
+
+        { type: 'heading', content: '批量操作' },
+        { type: 'text', content: '可以勾选多个未加密磁盘，点击"批量启用加密"一次性加密多个磁盘。' },
+        { type: 'tip', content: '批量加密时所有选中的磁盘将使用相同的密码。' },
+
+        { type: 'warning', content: '加密密码非常重要！遗忘密码将无法恢复数据，请务必妥善保管。' }
+    ]
+},
 
         // ========== 纠删码配置 ==========
         // ========== 纠删码配置 ==========

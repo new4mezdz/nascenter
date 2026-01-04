@@ -498,7 +498,7 @@
     </div>
   </div>
     <div :class="['desktop fixed inset-0', { 'desktop-with-navbar': showNavbar }]"
-     :style="desktopBackground ? { backgroundImage: 'url(' + desktopBackground + ')', backgroundSize: 'cover', backgroundPosition: 'center' } : {}"
+     :style="desktopBackground ? (desktopBackground.startsWith('linear-gradient') || desktopBackground.startsWith('#') ? { background: desktopBackground } : { backgroundImage: 'url(' + desktopBackground + ')', backgroundSize: 'cover', backgroundPosition: 'center' }) : {}"
      @click="closeAllMenus">
 
      <div class="icon-grid p-8" :class="{ 'edit-mode': iconEditMode }" @click.self="exitIconEditMode">
@@ -3491,7 +3491,7 @@
         <div class="text-sm text-gray-600 mb-2">预设背景</div>
         <div class="grid grid-cols-4 gap-2">
           <div v-for="preset in bgPresets" :key="preset.name"
-               @click="desktopBackground = preset.value; localStorage.setItem('desktopBackground', preset.value); showBackgroundDialog = false"
+               @click="setBackground(preset.value); showBackgroundDialog = false"
                class="h-16 rounded-lg cursor-pointer border-2 hover:border-blue-500 transition-all"
                :class="desktopBackground === preset.value ? 'border-blue-500' : 'border-gray-200'"
                :style="{ background: preset.value }">

@@ -1,3 +1,55 @@
+// 安全的存储包装器
+const safeStorage = (function() {
+    const fallback = {};
+    let isAvailable = null;
+    
+    function checkAvailable() {
+        if (isAvailable !== null) return isAvailable;
+        try {
+            const storage = window.localStorage;
+            if (!storage) {
+                isAvailable = false;
+                return false;
+            }
+            const test = '__storage_test__';
+            storage.setItem(test, test);
+            storage.removeItem(test);
+            isAvailable = true;
+        } catch (e) {
+            isAvailable = false;
+        }
+        return isAvailable;
+    }
+    
+    return {
+        getItem: function(key) {
+            try {
+                if (checkAvailable()) {
+                    return window.localStorage.getItem(key);
+                }
+            } catch (e) {}
+            return fallback[key] || null;
+        },
+        setItem: function(key, value) {
+            try {
+                if (checkAvailable()) {
+                    window.localStorage.setItem(key, value);
+                    return;
+                }
+            } catch (e) {}
+            fallback[key] = value;
+        },
+        removeItem: function(key) {
+            try {
+                if (checkAvailable()) {
+                    window.localStorage.removeItem(key);
+                    return;
+                }
+            } catch (e) {}
+            delete fallback[key];
+        }
+    };
+})();
 // 配置 axios 默认设置
 axios.defaults.withCredentials = true;
 axios.defaults.baseURL = '';
@@ -40,7 +92,7 @@ profileForm: {
     created_at: ''
 },
             // 桌面图标
-desktopIcons: JSON.parse(localStorage.getItem('adminDesktopIcons')) || [
+desktopIcons: JSON.parse(safeStorage.getItem('adminDesktopIcons')) || [
     { id: 'nodes', emoji: '🖥️', label: '节点管理', action: 'openNodeManagement', order: 0 },
     { id: 'space', emoji: '📦', label: '空间分配', action: 'openSpaceAllocation', order: 1 },
     { id: 'permission', emoji: '🔒', label: '权限设置', action: 'openPermissionSettings', order: 2 },
@@ -87,7 +139,7 @@ crossEcForm: {
     m: 2,
     selectedDisks: {}  // { nodeId: [disk1, disk2], ... }
 },
-            desktopBackground: localStorage.getItem('desktopBackground') || '',
+            desktopBackground: safeStorage.getItem('desktopBackground') || '',
 showBackgroundDialog: false,
 backgroundUrl: '',
 backgroundFile: null,
@@ -1800,6 +1852,12 @@ async loadFmNodes(win) {
 },
 
 async selectFmNode(win, node) {
+ if (node.status === 'offline') {
+        alert(`节点 ${node.name} 当前离线，无法访问`);
+        return;
+    }
+
+
     win.selectedFmNode = node;
     win.selectedFmDisk = null;
     win.selectedVolumeType = null;
@@ -2354,7 +2412,7 @@ onIconDrop(event, targetIcon) {
 },
 
 saveIconLayout() {
-    localStorage.setItem('adminDesktopIcons', JSON.stringify(this.desktopIcons));
+    safeStorage.setItem('adminDesktopIcons', JSON.stringify(this.desktopIcons));
 },
 
 
@@ -3142,24 +3200,24 @@ const res = await axios.put(
     reader.onload = (e) => {
       this.backgroundFile = e.target.result;
       this.backgroundUrl = '';
+      this.setBackground(e.target.result);
     };
     reader.readAsDataURL(file);
   },
 
-  setBackground() {
-    const bg = this.backgroundFile || this.backgroundUrl;
+ setBackground(preset) {
+    const bg = preset || this.backgroundFile || this.backgroundUrl;
     if (bg) {
       this.desktopBackground = bg;
-      localStorage.setItem('desktopBackground', bg);
+      safeStorage.setItem('desktopBackground', bg);
     }
     this.showBackgroundDialog = false;
   },
-
   resetBackground() {
     this.desktopBackground = '';
     this.backgroundUrl = '';
     this.backgroundFile = null;
-    localStorage.removeItem('desktopBackground');
+    safeStorage.removeItem('desktopBackground');
     this.showBackgroundDialog = false;
   }
 
