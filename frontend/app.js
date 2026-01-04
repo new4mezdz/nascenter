@@ -79,7 +79,7 @@ createApp({
             excludedDrives: ['C:', 'D:', 'c:', 'd:', '/c', '/d', 'C', 'D'],
             // 跨节点池对话框
 showCreatePoolDialog: false,
-poolForm: { name: '', display_name: '', strategy: 'space_first', disks: [] },
+poolForm: { name: '', display_name: '', strategy: 'largest_free', disks: [] },
 poolEditMode: false,
 currentHelpChapter: 'quickstart',  // 当前选中的章节
             // 个人信息
@@ -952,7 +952,7 @@ showCrossVolumeDialog: false,   // 新增
 crossVolumeForm: { name: '', display_name: '', icon: '📁', strategy: 'largest_free' },  // 新增
 crossVolumeEditMode: false,     // 新增
         showCreatePoolDialog: false,
-        poolForm: { name: '', display_name: '', strategy: 'space_first', disks: [] },
+        poolForm: { name: '', display_name: '', strategy: 'largest_free', disks: [] },
         poolEditMode: false,
         // 选择磁盘
         selectedNodeForDisk: null,
@@ -991,7 +991,7 @@ async loadCrossPools(win) {
 
 // 打开创建池对话框
 openCreatePoolDialog(win) {
-    win.poolForm = { name: '', display_name: '', strategy: 'space_first', disks: [] };
+    win.poolForm = { name: '', display_name: '', strategy: 'largest_free', disks: [] };
     win.poolEditMode = false;
     win.selectedNodeForDisk = null;
     win.nodeDisks = [];
@@ -1187,10 +1187,9 @@ removeDiskFromSelection(win, index) {
 // 获取策略显示名称
 getStrategyName(strategy) {
     const map = {
-        'space_first': '空间优先',
-        'round_robin': '轮询',
-        'node_spread': '节点优先轮询',
-        'fill': '填充模式'
+        'largest_free': '最大空间优先',
+        'round_robin': '轮询分配',
+        'balanced': '按比例加权'
     };
     return map[strategy] || strategy;
 },
@@ -1202,9 +1201,9 @@ async selectNodeForPool(win, node) {
     win.poolVolumes = [];
     try {
         const [statusRes, volumesRes, healthRes] = await Promise.all([
-            axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/pool/status`),
-            axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/pool/volumes`),
-            axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/pool/health`)
+            axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/proxy/pool/status`),
+axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/proxy/pool/volumes`),
+axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/proxy/pool/health`)
         ]);
         win.poolStatus = statusRes.data;
         // 把字典转成数组

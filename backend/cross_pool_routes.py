@@ -3,6 +3,7 @@ from flask import Blueprint, request, jsonify, session
 import sqlite3
 import json
 import requests
+import random
 from datetime import datetime
 from auth import login_required, admin_required
 from common import get_db_connection
@@ -22,7 +23,7 @@ def init_cross_pool_tables():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
             display_name TEXT,
-            strategy TEXT DEFAULT 'space_first',
+            strategy TEXT DEFAULT 'largest_free',
             disks TEXT,
             round_robin_index INTEGER DEFAULT 0,
             status TEXT DEFAULT 'active',
@@ -49,6 +50,21 @@ def init_cross_pool_tables():
             FOREIGN KEY (pool_id) REFERENCES cross_node_pools(id)
         )
     ''')
+
+    # 跨节点池逻辑卷表
+    cursor.execute('''
+            CREATE TABLE IF NOT EXISTS cross_pool_volumes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pool_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                display_name TEXT,
+                icon TEXT DEFAULT '📁',
+                strategy TEXT DEFAULT 'largest_free',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (pool_id) REFERENCES cross_node_pools(id),
+                UNIQUE(pool_id, name)
+            )
+        ''')
 
     conn.commit()
     conn.close()
@@ -95,14 +111,14 @@ def create_pool():
     data = request.json
     name = data.get('name')
     display_name = data.get('display_name', name)
-    strategy = data.get('strategy', 'space_first')
+    strategy = data.get('strategy', 'largest_free')
     disks = data.get('disks', [])
 
     if not name:
         return jsonify({'error': '池名称不能为空'}), 400
 
     # 验证策略
-    valid_strategies = ['space_first', 'round_robin', 'node_spread', 'fill']
+    valid_strategies = ['largest_free', 'round_robin', 'balanced']
     if strategy not in valid_strategies:
         return jsonify({'error': f'无效的策略，可选: {valid_strategies}'}), 400
 
@@ -110,20 +126,30 @@ def create_pool():
     cursor = conn.cursor()
 
     # 检查重名
-    cursor.execute('SELECT id FROM cross_node_pools WHERE name = ? AND status != "deleted"', (name,))
-    if cursor.fetchone():
-        conn.close()
-        return jsonify({'error': '池名称已存在'}), 400
+    # 检查重名（包括已删除的）
+    cursor.execute('SELECT id, status FROM cross_node_pools WHERE name = ?', (name,))
+    existing = cursor.fetchone()
+    if existing:
+        if existing[1] == 'deleted':
+            # 复用已删除的记录
+            cursor.execute('''
+                    UPDATE cross_node_pools 
+                    SET display_name = ?, strategy = ?, disks = ?, status = 'active', updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (display_name, strategy, json.dumps(disks), existing[0]))
+            pool_id = existing[0]
+        else:
+            conn.close()
+            return jsonify({'error': '池名称已存在'}), 400
+    else:
+        cursor.execute('''
+                INSERT INTO cross_node_pools (name, display_name, strategy, disks)
+                VALUES (?, ?, ?, ?)
+            ''', (name, display_name, strategy, json.dumps(disks)))
+        pool_id = cursor.lastrowid
 
-    cursor.execute('''
-        INSERT INTO cross_node_pools (name, display_name, strategy, disks)
-        VALUES (?, ?, ?, ?)
-    ''', (name, display_name, strategy, json.dumps(disks)))
-
-    pool_id = cursor.lastrowid
     conn.commit()
     conn.close()
-
     return jsonify({'success': True, 'id': pool_id, 'message': '跨节点池创建成功'})
 
 
@@ -178,7 +204,7 @@ def update_pool(pool_id):
         params.append(data['display_name'])
 
     if 'strategy' in data:
-        valid_strategies = ['space_first', 'round_robin', 'node_spread', 'fill']
+        valid_strategies = ['largest_free', 'round_robin', 'balanced']
         if data['strategy'] not in valid_strategies:
             conn.close()
             return jsonify({'error': f'无效的策略'}), 400
@@ -358,8 +384,8 @@ def select_disk_by_strategy(pool_id):
 
     selected = None
 
-    if strategy == 'space_first':
-        # 空间优先：查询各磁盘可用空间，选最大的
+    if strategy == 'largest_free':
+        # 最大剩余空间优先：查询各磁盘可用空间，选最大的
         max_free = -1
         for disk_info in disks:
             try:
@@ -387,7 +413,7 @@ def select_disk_by_strategy(pool_id):
             selected = disks[0]  # 降级：选第一个
 
     elif strategy == 'round_robin':
-        # 普通轮询
+        # 轮询分配
         selected = disks[rr_index % len(disks)]
         cursor.execute(
             'UPDATE cross_node_pools SET round_robin_index = ? WHERE id = ?',
@@ -395,39 +421,16 @@ def select_disk_by_strategy(pool_id):
         )
         conn.commit()
 
-    elif strategy == 'node_spread':
-        # 节点优先轮询：先跨节点，再跨磁盘
-        # 按节点分组
-        nodes_disks = {}
-        for d in disks:
-            nid = d.get('nodeId')
-            if nid not in nodes_disks:
-                nodes_disks[nid] = []
-            nodes_disks[nid].append(d)
-
-        node_ids = list(nodes_disks.keys())
-        if node_ids:
-            # 计算当前应该选哪个节点的哪个磁盘
-            node_idx = rr_index % len(node_ids)
-            current_node = node_ids[node_idx]
-            node_disks = nodes_disks[current_node]
-            disk_idx = (rr_index // len(node_ids)) % len(node_disks)
-            selected = node_disks[disk_idx]
-
-            cursor.execute(
-                'UPDATE cross_node_pools SET round_robin_index = ? WHERE id = ?',
-                (rr_index + 1, pool_id)
-            )
-            conn.commit()
-
-    elif strategy == 'fill':
-        # 填充模式：填满一个再换下一个
+    elif strategy == 'balanced':
+        # 按剩余空间比例加权随机
+        weights = []
         for disk_info in disks:
             try:
                 node_id = disk_info.get('nodeId')
                 cursor.execute('SELECT ip, port FROM nodes WHERE node_id = ?', (node_id,))
                 node = cursor.fetchone()
                 if not node:
+                    weights.append(1)
                     continue
 
                 resp = requests.get(
@@ -437,18 +440,13 @@ def select_disk_by_strategy(pool_id):
                     timeout=3
                 )
                 if resp.status_code == 200:
-                    data = resp.json()
-                    # 如果使用率 < 90%，就选这个
-                    if data.get('total', 0) > 0:
-                        usage = data.get('used', 0) / data.get('total', 1)
-                        if usage < 0.9:
-                            selected = disk_info
-                            break
+                    weights.append(max(resp.json().get('free', 1), 1))
+                else:
+                    weights.append(1)
             except:
-                continue
+                weights.append(1)
 
-        if not selected:
-            selected = disks[0]  # 降级
+        selected = random.choices(disks, weights=weights, k=1)[0]
 
     else:
         selected = disks[0]
@@ -663,3 +661,154 @@ def delete_file(pool_id, file_id):
     conn.close()
 
     return jsonify({'success': True})
+
+
+# ========== 逻辑卷管理 ==========
+
+@cross_pool_bp.route('/api/cross-pools/<int:pool_id>/volumes', methods=['GET'])
+@login_required
+def list_volumes(pool_id):
+    """列出池的逻辑卷"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # 检查池是否存在
+    cursor.execute('SELECT id FROM cross_node_pools WHERE id = ? AND status != "deleted"', (pool_id,))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({'error': '池不存在'}), 404
+
+    cursor.execute('''
+        SELECT name, display_name, icon, strategy, created_at
+        FROM cross_pool_volumes
+        WHERE pool_id = ?
+        ORDER BY created_at
+    ''', (pool_id,))
+    rows = cursor.fetchall()
+    conn.close()
+
+    volumes = [{
+        'name': row[0],
+        'display_name': row[1],
+        'icon': row[2],
+        'strategy': row[3],
+        'created_at': row[4]
+    } for row in rows]
+
+    return jsonify(volumes)
+
+
+@cross_pool_bp.route('/api/cross-pools/<int:pool_id>/volumes', methods=['POST'])
+@login_required
+@admin_required
+def create_volume(pool_id):
+    """创建逻辑卷"""
+    data = request.json
+    name = data.get('name')
+    display_name = data.get('display_name', name)
+    icon = data.get('icon', '📁')
+    strategy = data.get('strategy', 'largest_free')
+
+    if not name:
+        return jsonify({'error': '卷名称不能为空'}), 400
+
+    valid_strategies = ['largest_free', 'round_robin', 'balanced']
+    if strategy not in valid_strategies:
+        return jsonify({'error': '无效的策略'}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # 检查池是否存在
+    cursor.execute('SELECT id FROM cross_node_pools WHERE id = ? AND status != "deleted"', (pool_id,))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({'error': '池不存在'}), 404
+
+    # 检查重名
+    cursor.execute('SELECT name FROM cross_pool_volumes WHERE pool_id = ? AND name = ?', (pool_id, name))
+    if cursor.fetchone():
+        conn.close()
+        return jsonify({'error': '卷名称已存在'}), 400
+
+    cursor.execute('''
+        INSERT INTO cross_pool_volumes (pool_id, name, display_name, icon, strategy)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (pool_id, name, display_name, icon, strategy))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({'success': True, 'message': '逻辑卷创建成功'})
+
+
+@cross_pool_bp.route('/api/cross-pools/<int:pool_id>/volumes/<volume_name>', methods=['PATCH'])
+@login_required
+@admin_required
+def update_volume(pool_id, volume_name):
+    """更新逻辑卷"""
+    data = request.json
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # 检查卷是否存在
+    cursor.execute('SELECT name FROM cross_pool_volumes WHERE pool_id = ? AND name = ?', (pool_id, volume_name))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({'error': '逻辑卷不存在'}), 404
+
+    updates = []
+    params = []
+
+    if 'display_name' in data:
+        updates.append('display_name = ?')
+        params.append(data['display_name'])
+
+    if 'icon' in data:
+        updates.append('icon = ?')
+        params.append(data['icon'])
+
+    if 'strategy' in data:
+        valid_strategies = ['largest_free', 'round_robin', 'balanced']
+        if data['strategy'] not in valid_strategies:
+            conn.close()
+            return jsonify({'error': '无效的策略'}), 400
+        updates.append('strategy = ?')
+        params.append(data['strategy'])
+
+    if updates:
+        params.extend([pool_id, volume_name])
+        cursor.execute(f'''
+            UPDATE cross_pool_volumes SET {', '.join(updates)}
+            WHERE pool_id = ? AND name = ?
+        ''', params)
+        conn.commit()
+
+    conn.close()
+    return jsonify({'success': True, 'message': '更新成功'})
+
+
+@cross_pool_bp.route('/api/cross-pools/<int:pool_id>/volumes/<volume_name>', methods=['DELETE'])
+@login_required
+@admin_required
+def delete_volume(pool_id, volume_name):
+    """删除逻辑卷"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # 检查是否有文件
+    cursor.execute('''
+        SELECT COUNT(*) FROM cross_pool_files 
+        WHERE pool_id = ? AND filepath LIKE ?
+    ''', (pool_id, f'{volume_name}/%'))
+    file_count = cursor.fetchone()[0]
+
+    if file_count > 0:
+        conn.close()
+        return jsonify({'error': f'卷中还有 {file_count} 个文件，请先清空'}), 400
+
+    cursor.execute('DELETE FROM cross_pool_volumes WHERE pool_id = ? AND name = ?', (pool_id, volume_name))
+    conn.commit()
+    conn.close()
+
+    return jsonify({'success': True, 'message': '删除成功'})

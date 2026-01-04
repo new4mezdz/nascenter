@@ -969,10 +969,7 @@
                 <div class="text-2xl font-bold text-purple-600">{{ ((window.selectedCrossPool.stats?.total_size || 0) / 1073741824).toFixed(2) }}</div>
                 <div class="text-xs text-gray-600">总大小 (GB)</div>
               </div>
-              <div class="bg-orange-50 p-4 rounded-lg text-center">
-                <div class="text-2xl font-bold text-orange-600">{{ getStrategyName(window.selectedCrossPool.strategy) }}</div>
-                <div class="text-xs text-gray-600">分配策略</div>
-              </div>
+
             </div>
           </div>
 
@@ -1008,10 +1005,9 @@
               <span class="text-2xl">💡</span>
               <div class="text-sm text-blue-800">
                 <strong>当前策略: {{ getStrategyName(window.selectedCrossPool.strategy) }}</strong>
-                <p class="mt-1" v-if="window.selectedCrossPool.strategy === 'space_first'">文件将优先存储到剩余空间最大的磁盘</p>
-                <p class="mt-1" v-else-if="window.selectedCrossPool.strategy === 'round_robin'">文件将按顺序轮流存储到各个磁盘</p>
-                <p class="mt-1" v-else-if="window.selectedCrossPool.strategy === 'node_spread'">文件将优先分散到不同节点，最大程度提高容错性</p>
-                <p class="mt-1" v-else-if="window.selectedCrossPool.strategy === 'fill'">填满一个磁盘后再使用下一个磁盘</p>
+                <p class="mt-1" v-if="window.selectedCrossPool.strategy === 'largest_free'">文件将优先存储到剩余空间最大的磁盘</p>
+<p class="mt-1" v-else-if="window.selectedCrossPool.strategy === 'round_robin'">文件将按顺序轮流存储到各个磁盘</p>
+<p class="mt-1" v-else-if="window.selectedCrossPool.strategy === 'balanced'">文件将按剩余空间比例加权分配</p>
               </div>
             </div>
           </div>
@@ -1422,8 +1418,8 @@
               <label class="block text-sm font-medium mb-1">存储策略</label>
               <select v-model="window.volumeForm.strategy" class="w-full border rounded px-3 py-2">
                 <option value="largest_free">最大可用空间优先</option>
-                <option value="round_robin">轮询分配</option>
-                <option value="random">随机分配</option>
+<option value="round_robin">轮询分配</option>
+<option value="balanced">按比例加权</option>
               </select>
             </div>
           </div>
