@@ -838,3 +838,53 @@ def delete_cross_ec_file():
     conn.close()
 
     return jsonify({'success': True, 'message': '文件已删除'})
+
+
+
+@ec_bp.route('/api/ec_download', methods=['GET'])
+@login_required
+def download_cross_ec_file():
+    """下载跨节点EC文件"""
+    filename = request.args.get('name')
+    if not filename:
+        return jsonify({'error': '缺少文件名'}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT size, k, m, shard_size, disks FROM cross_ec_files WHERE filename = ?', (filename,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({'error': '文件不存在'}), 404
+
+    original_size, k, m, shard_size, disks_json = row
+    disks = json.loads(disks_json)
+
+    # 收集分片
+    shards = [None] * (k + m)
+    for i, disk_info in enumerate(disks[:k + m]):
+        try:
+            resp = requests.get(
+                f"http://{disk_info['ip']}:{disk_info['port']}/api/ec_shard",
+                params={'filename': filename, 'shard_index': i, 'disk': disk_info['disk']},
+                headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+                timeout=10
+            )
+            if resp.status_code == 200:
+                shards[i] = bytes.fromhex(resp.json()['shard_data'])
+        except:
+            continue
+
+    available = sum(1 for s in shards if s is not None)
+    if available < k:
+        return jsonify({'error': f'分片不足，需要{k}个，只有{available}个'}), 500
+
+    # 解码
+    decoded = rs_decode(shards, k, m, shard_size, original_size)
+
+    return send_file(
+        BytesIO(decoded),
+        download_name=filename,
+        as_attachment=True
+    )

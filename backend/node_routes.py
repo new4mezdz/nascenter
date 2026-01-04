@@ -26,10 +26,21 @@ def node_register():
 
     node_id = data.get('node_id')
 
+    # ✅ 修复：优先使用请求的真实 IP，而不是节点自报的 IP
+    real_ip = request.remote_addr
+    reported_ip = data.get('ip')
+
+    # 如果真实IP是127.0.0.1（本机测试），则用节点自报的IP
+    # 否则用真实IP
+    if real_ip in ('127.0.0.1', '::1'):
+        node_ip = reported_ip
+    else:
+        node_ip = real_ip
+
     ACTIVE_NODES[node_id] = {
         'id': node_id,
         'name': data.get('name', '未命名节点'),
-        'ip': data.get('ip'),
+        'ip': node_ip,  # ✅ 使用修正后的 IP
         'port': data.get('port'),
         'status': 'online',
         'stats': data.get('stats', {}),
@@ -39,7 +50,6 @@ def node_register():
     update_node_config(node_id, data)
 
     return jsonify({'success': True, 'message': '注册成功'})
-
 
 @node_bp.route('/api/nodes', methods=['GET'])
 @login_required

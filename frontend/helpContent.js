@@ -226,7 +226,7 @@ space: {
 
         { type: 'heading', content: '总览页面' },
         { type: 'text', content: '进入加密管理后首先看到节点总览页面，显示所有节点的加密状态概览。' },
-        { type: 'image', src: '/images/help/11.png', caption: '加密管理总览' },
+        { type: 'image', src: '/images/help/12.png', caption: '加密管理总览' },
         { type: 'list', items: [
             { label: '总节点数', desc: '系统中所有已添加的节点数量' },
             { label: '在线节点', desc: '当前处于在线状态的节点数量' },
@@ -237,7 +237,7 @@ space: {
 
         { type: 'heading', content: '磁盘加密管理' },
         { type: 'text', content: '选择节点后进入磁盘加密管理页面，可查看和操作该节点的所有磁盘。' },
-        { type: 'image', src: '/images/help/12.png', caption: '磁盘加密管理' },
+        { type: 'image', src: '/images/help/13.png', caption: '磁盘加密管理' },
 
         { type: 'heading', content: '磁盘状态说明' },
         { type: 'list', items: [
@@ -279,7 +279,7 @@ ec: {
     title: '纠删码配置',
     blocks: [
         { type: 'text', content: '纠删码（Erasure Coding，简称EC）是一种数据保护技术，将数据分散存储到多个磁盘或节点，即使部分故障也能恢复完整数据。' },
-        { type: 'image', src: '/images/help/ec-overview.png', caption: '纠删码配置界面' },
+        { type: 'image', src: '/images/help/14.png', caption: '纠删码配置界面' },
 
         { type: 'heading', content: '基本概念' },
         { type: 'list', items: [
@@ -298,7 +298,7 @@ ec: {
 
         { type: 'heading', content: '跨节点纠删码' },
         { type: 'text', content: '跨节点纠删码将数据分散存储到多个节点，提供节点级容错能力。' },
-        { type: 'image', src: '/images/help/crossnode-ec.png', caption: '跨节点纠删码架构' },
+        { type: 'image', src: '/images/help/15.png', caption: '跨节点纠删码架构' },
         { type: 'list', items: [
             { label: '适用场景', desc: '多节点环境，需要高可用性和数据安全' },
             { label: '容错级别', desc: '节点级容错，即使整个节点故障数据仍可访问' },
@@ -350,7 +350,7 @@ ec: {
             title: '文件管理',
             blocks: [
                 { type: 'text', content: '文件管理功能允许您浏览和管理节点上的文件，支持上传、下载、删除、重命名等常用操作。' },
-                { type: 'image', src: '/images/help/file-manager.png', caption: '文件管理界面' },
+                { type: 'image', src: '/images/help/16.png', caption: '文件管理界面' },
 
                 { type: 'heading', content: '浏览文件' },
                 { type: 'text', content: '选择节点和目录后，即可查看该目录下的所有文件和文件夹。支持双击进入子目录。' },
@@ -372,7 +372,7 @@ ec: {
             title: '系统监控',
             blocks: [
                 { type: 'text', content: '系统监控提供各节点的实时运行状态，包括CPU、内存、磁盘、网络等资源使用情况。' },
-                { type: 'image', src: '/images/help/system-monitor.png', caption: '系统监控界面' },
+                { type: 'image', src: '/images/help/17.png', caption: '系统监控界面' },
 
                 { type: 'heading', content: '监控指标' },
                 { type: 'list', items: [
@@ -397,6 +397,7 @@ ec: {
             title: '系统设置',
             blocks: [
                 { type: 'text', content: '系统设置包含一些全局配置选项，如桌面背景、通信密钥等。' },
+                { type: 'image', src: '/images/help/18.png', caption: '系统设置界面' },
 
                 { type: 'heading', content: '桌面背景' },
                 { type: 'text', content: '您可以自定义管理端的桌面背景，支持预设渐变色或上传自定义图片。' },
@@ -423,46 +424,30 @@ ec: {
         faq: {
             title: '常见问题',
             blocks: [
-                { type: 'heading', content: '节点显示离线怎么办？' },
-                { type: 'text', content: '请按以下步骤排查：' },
-                { type: 'list', items: [
-                    { label: '1', desc: '检查节点设备是否已开机' },
-                    { label: '2', desc: '检查网络连接是否正常（能否ping通节点IP）' },
-                    { label: '3', desc: '检查节点服务是否正在运行' },
-                    { label: '4', desc: '确认通信密钥是否与管理端一致' }
-                ]},
+               { type: 'heading', content: '如何修改通信密钥？' },
+{ type: 'text', content: '点击开始菜单 → 设置 → 通信密钥，输入新密钥后保存。' },
+{ type: 'warning', content: '修改后需同步更新所有节点配置文件中的密钥，否则节点将无法连接。' },
 
-                { type: 'heading', content: '忘记加密密码怎么办？' },
-                { type: 'text', content: '很遗憾，加密密码无法找回或重置。如果确实遗忘了密码，只能对磁盘进行格式化，这将导致数据丢失。' },
-                { type: 'warning', content: '请务必妥善保管加密密码，建议记录在安全的地方。' },
+{ type: 'heading', content: '用户角色有什么区别？' },
+{ type: 'list', items: [
+    { label: 'admin', desc: '管理员，拥有完全控制权限，可管理所有功能' },
+    { label: 'user', desc: '普通用户，拥有读写权限' },
+    { label: 'guest', desc: '访客，仅有只读权限' }
+]},
 
-                { type: 'heading', content: '如何批量管理节点？' },
-                { type: 'text', content: '可以使用节点分组功能：' },
-                { type: 'list', items: [
-                    { label: '1', desc: '在权限设置中创建节点分组' },
-                    { label: '2', desc: '将同类节点添加到分组中' },
-                    { label: '3', desc: '为用户授权时选择按分组授权' }
-                ]},
+{ type: 'heading', content: '如何限制用户只能访问特定节点？' },
+{ type: 'text', content: '在权限设置中，点击用户的"节点访问"列，可设置：' },
+{ type: 'list', items: [
+    { label: '全部节点', desc: '用户可访问所有节点' },
+    { label: '按分组', desc: '用户只能访问指定分组内的节点' },
+    { label: '自定义', desc: '精确控制允许/禁止访问的节点' }
+]},
 
-                { type: 'heading', content: '纠删码会影响性能吗？' },
-                { type: 'text', content: '纠删码需要额外的计算资源用于编解码，可能对性能有一定影响。但在现代硬件上，这种影响通常很小。建议根据实际需求权衡数据安全性和性能。' },
+{ type: 'heading', content: '什么是跨节点纠删码？' },
+{ type: 'text', content: '跨节点纠删码将数据分片存储在多个节点的磁盘上。即使部分节点离线，仍可恢复完整数据。配置时需选择至少2个节点，总磁盘数需≥k+m。' },
 
-                { type: 'heading', content: '如何备份系统配置？' },
-                { type: 'text', content: '系统配置存储在管理端服务器上，建议定期备份以下内容：' },
-                { type: 'list', items: [
-                    { label: '数据库文件', desc: '包含用户、节点、权限等配置' },
-                    { label: '配置文件', desc: '系统运行参数配置' }
-                ]},
-
-                { type: 'heading', content: '支持哪些浏览器？' },
-                { type: 'text', content: 'NAS Center 管理系统支持以下现代浏览器：' },
-                { type: 'list', items: [
-                    { label: 'Chrome', desc: '推荐使用，最佳体验' },
-                    { label: 'Firefox', desc: '完全支持' },
-                    { label: 'Edge', desc: '完全支持' },
-                    { label: 'Safari', desc: '基本支持' }
-                ]},
-                { type: 'tip', content: '建议使用最新版本的浏览器以获得最佳体验。' }
+{ type: 'heading', content: '如何修改账户密码？' },
+{ type: 'text', content: '点击右上角用户头像 → 修改密码，输入新密码后确认。修改成功后需重新登录。' },
             ]
         }
     }

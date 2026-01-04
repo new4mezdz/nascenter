@@ -99,11 +99,6 @@ def init_db():
     conn = sqlite3.connect('nas_center.db')
     cursor = conn.cursor()
 
-    # 检查 avatar 列
-    cursor.execute("PRAGMA table_info(users)")
-    columns = [col[1] for col in cursor.fetchall()]
-    if 'avatar' not in columns:
-        cursor.execute('ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ""')
 
     # 用户表
     cursor.execute('''
@@ -226,8 +221,15 @@ def init_db():
         )
     ''')
 
+    # 检查 avatar 列
+    cursor.execute("PRAGMA table_info(users)")
+    columns = [col[1] for col in cursor.fetchall()]
+    if 'avatar' not in columns:
+        cursor.execute('ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ""')
+
     conn.commit()
     conn.close()
+
 
 
 # ========== ngrok 相关 ==========

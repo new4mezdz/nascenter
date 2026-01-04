@@ -393,11 +393,11 @@ async saveCrossEcConfig(window) {
     for (let nodeId in window.crossEcForm.selectedDisks) {
         const node = (window.allNodes || []).find(n => n.id === nodeId);
         nodes.push({
-            nodeId,
-            nodeName: node?.name || nodeId,
-            ip: node?.ip || '',
-            disks: window.crossEcForm.selectedDisks[nodeId]
-        });
+    node_id: nodeId,    // 改这里：nodeId → node_id
+    nodeName: node?.name || nodeId,
+    ip: node?.ip || '',
+    disks: window.crossEcForm.selectedDisks[nodeId]
+});
     }
 
     if (nodes.length < 2) {
@@ -947,6 +947,10 @@ openSpaceAllocation() {
         crossPools: [],
         crossPoolsLoading: false,
         selectedCrossPool: null,
+crossPoolVolumes: [],           // 新增
+showCrossVolumeDialog: false,   // 新增
+crossVolumeForm: { name: '', display_name: '', icon: '📁', strategy: 'largest_free' },  // 新增
+crossVolumeEditMode: false,     // 新增
         showCreatePoolDialog: false,
         poolForm: { name: '', display_name: '', strategy: 'space_first', disks: [] },
         poolEditMode: false,
@@ -1055,6 +1059,7 @@ async deleteCrossPool(win, pool) {
     }
 },
 
+
 // 选择跨节点池查看详情
 async selectCrossPool(win, pool) {
     win.selectedCrossPool = pool;
@@ -1064,6 +1069,73 @@ async selectCrossPool(win, pool) {
         win.selectedCrossPool.stats = res.data;
     } catch (e) {
         console.error('加载池统计失败', e);
+    }
+    // 加载逻辑卷
+    this.loadCrossPoolVolumes(win);
+},
+
+        // 加载跨节点池逻辑卷
+async loadCrossPoolVolumes(win) {
+    if (!win.selectedCrossPool) return;
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/cross-pools/${win.selectedCrossPool.id}/volumes`);
+        win.crossPoolVolumes = res.data || [];
+    } catch (e) {
+        console.error('加载逻辑卷失败', e);
+        win.crossPoolVolumes = [];
+    }
+},
+
+// 打开创建跨节点逻辑卷对话框
+openCreateCrossVolumeDialog(win) {
+    win.crossVolumeForm = { name: '', display_name: '', icon: '📁', strategy: 'largest_free' };
+    win.crossVolumeEditMode = false;
+    win.showCrossVolumeDialog = true;
+},
+
+// 打开编辑跨节点逻辑卷对话框
+openEditCrossVolumeDialog(win, vol) {
+    win.crossVolumeForm = {
+        name: vol.name,
+        display_name: vol.display_name || '',
+        icon: vol.icon || '📁',
+        strategy: vol.strategy || 'largest_free'
+    };
+    win.crossVolumeEditMode = true;
+    win.showCrossVolumeDialog = true;
+},
+
+// 保存跨节点逻辑卷
+async saveCrossVolume(win) {
+    const form = win.crossVolumeForm;
+    if (!form.name) return alert('请输入逻辑卷名称');
+    try {
+        if (win.crossVolumeEditMode) {
+            await axios.patch(`${this.apiBaseUrl}/api/cross-pools/${win.selectedCrossPool.id}/volumes/${form.name}`, {
+                display_name: form.display_name,
+                icon: form.icon,
+                strategy: form.strategy
+            });
+        } else {
+            await axios.post(`${this.apiBaseUrl}/api/cross-pools/${win.selectedCrossPool.id}/volumes`, form);
+        }
+        alert(win.crossVolumeEditMode ? '更新成功' : '创建成功');
+        win.showCrossVolumeDialog = false;
+        this.loadCrossPoolVolumes(win);
+    } catch (e) {
+        alert('操作失败: ' + (e.response?.data?.detail || e.message));
+    }
+},
+
+// 删除跨节点逻辑卷
+async deleteCrossVolume(win, volName) {
+    if (!confirm('确定要删除该逻辑卷吗？')) return;
+    try {
+        await axios.delete(`${this.apiBaseUrl}/api/cross-pools/${win.selectedCrossPool.id}/volumes/${volName}`);
+        alert('删除成功');
+        this.loadCrossPoolVolumes(win);
+    } catch (e) {
+        alert('删除失败: ' + (e.response?.data?.detail || e.message));
     }
 },
 
@@ -2091,44 +2163,45 @@ async createFolder(win) {
 },
 
 async downloadFile(win, file) {
+    // 跨节点EC文件下载
+    if (win.selectedVolumeType === 'cross-ec') {
+        const url = `${this.apiBaseUrl}/api/ec_download?name=${encodeURIComponent(file.name)}`;
+        window.open(url, '_blank');
+        return;
+    }
+
     const url = `${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/download?disk=${encodeURIComponent(win.selectedFmDisk)}&path=${encodeURIComponent(win.currentPath ? `${win.currentPath}/${file.name}` : file.name)}`;
     window.open(url, '_blank');
 },
 
-
 // 预览文件
 previewFile(win, file) {
     const ext = file.name.split('.').pop()?.toLowerCase();
-
-    // 支持直接预览的格式
     const previewExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'pdf', 'mp4', 'webm', 'mp3', 'wav', 'txt', 'json', 'md', 'html', 'css', 'js'];
-
-    // 需要客户端预览的格式（Office文档等）
     const clientPreviewExts = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
 
     if (clientPreviewExts.includes(ext)) {
-        // 提示用户去客户端查看
-        alert(`"${file.name}" 是 Office 文档，暂不支持在线预览。\n\n请前往对应节点的客户端界面查看此文件。`);
+        alert(`"${file.name}" 是 Office 文档，暂不支持在线预览。`);
         return;
     }
 
     if (!previewExts.includes(ext)) {
-        // 其他不支持的格式，提示并询问是否下载
         if (confirm(`"${file.name}" 暂不支持预览，是否直接下载？`)) {
             this.downloadFile(win, file);
         }
         return;
     }
 
-    const path = win.currentPath ? `${win.currentPath}/${file.name}` : file.name;
-    const url = `${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/preview?disk=${encodeURIComponent(win.selectedFmDisk)}&path=${encodeURIComponent(path)}`;
+    let url;
+    if (win.selectedVolumeType === 'cross-ec') {
+        // 跨节点EC文件预览
+        url = `${this.apiBaseUrl}/api/ec_download?name=${encodeURIComponent(file.name)}`;
+    } else {
+        const path = win.currentPath ? `${win.currentPath}/${file.name}` : file.name;
+        url = `${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/preview?disk=${encodeURIComponent(win.selectedFmDisk)}&path=${encodeURIComponent(path)}`;
+    }
 
-    // 设置预览数据
-    win.previewFile = {
-        name: file.name,
-        ext: ext,
-        url: url
-    };
+    win.previewFile = { name: file.name, ext: ext, url: url };
     win.showPreview = true;
 },
 // 预览选中的第一个文件
@@ -2184,18 +2257,29 @@ async deleteSelected(win) {
 
     for (let name of win.selectedFiles) {
         try {
-            await axios.delete(`${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/file`, {
-                data: {
-                    disk: win.selectedFmDisk,
-                    path: win.currentPath ? `${win.currentPath}/${name}` : name
-                }
-            });
+            // 跨节点EC文件删除
+            if (win.selectedVolumeType === 'cross-ec') {
+                await axios.delete(`${this.apiBaseUrl}/api/ec_file?name=${encodeURIComponent(name)}`);
+            } else {
+                await axios.delete(`${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/file`, {
+                    data: {
+                        disk: win.selectedFmDisk,
+                        path: win.currentPath ? `${win.currentPath}/${name}` : name
+                    }
+                });
+            }
         } catch (e) {
             console.error('删除失败', name, e);
         }
     }
     win.selectedFiles = [];
-    this.loadFmFiles(win);
+
+    // 刷新文件列表
+    if (win.selectedVolumeType === 'cross-ec') {
+        this.loadCrossEcFiles(win);
+    } else {
+        this.loadFmFiles(win);
+    }
 },
 // [新] 创建文件夹 (调用我们的新网关API)
     async mkdirInFileExplorer(window) {
