@@ -1045,21 +1045,20 @@ async saveCrossPool(win) {
 },
 
 // 删除跨节点池
-async deleteCrossPool(pool) {
-    const hasFiles = pool.file_count > 0;  // 如果有文件数信息
-
-    let keepFiles = true;
+async deleteCrossPool(win, pool) {
     if (!confirm(`确定要删除存储池「${pool.display_name || pool.name}」吗？`)) {
         return;
     }
 
     // 询问是否保留文件
-    keepFiles = confirm('是否保留实际文件？\n\n点击「确定」保留文件\n点击「取消」完全删除');
+    const keepFiles = confirm('是否保留实际文件？\n\n点击「确定」保留文件\n点击「取消」完全删除');
 
     try {
         await axios.delete(`${this.apiBaseUrl}/api/cross-pools/${pool.id}?keep_files=${keepFiles}`);
-        this.showToast('删除成功', 'success');
-        await this.loadCrossPools();
+        alert('删除成功');
+        win.selectedCrossPool = null;  // 重置选中状态，回到列表页
+        win.crossPoolVolumes = [];     // 清空逻辑卷
+        await this.loadCrossPools(win);
     } catch (e) {
         alert('删除失败: ' + (e.response?.data?.error || e.message));
     }

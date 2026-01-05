@@ -1850,7 +1850,7 @@
     </td>
 
     <td class="p-3">
-      <select v-model="user.role" @change="updateUserPermissions(user)"
+      <select v-model="user.role" @change="user.file_permission = getPermissionByRole(user.role); updateUserPermissions(user)"
               :disabled="user.username === 'admin'"
               class="px-3 py-1 border rounded text-xs"
               :class="{ 'cursor-not-allowed bg-gray-100': user.username === 'admin' }">
