@@ -1045,15 +1045,21 @@ async saveCrossPool(win) {
 },
 
 // 删除跨节点池
-async deleteCrossPool(win, pool) {
-    if (!confirm(`确定要删除跨节点池 "${pool.display_name || pool.name}" 吗？`)) return;
+async deleteCrossPool(pool) {
+    const hasFiles = pool.file_count > 0;  // 如果有文件数信息
+
+    let keepFiles = true;
+    if (!confirm(`确定要删除存储池「${pool.display_name || pool.name}」吗？`)) {
+        return;
+    }
+
+    // 询问是否保留文件
+    keepFiles = confirm('是否保留实际文件？\n\n点击「确定」保留文件\n点击「取消」完全删除');
+
     try {
-        await axios.delete(`${this.apiBaseUrl}/api/cross-pools/${pool.id}`);
-        alert('删除成功');
-        if (win.selectedCrossPool?.id === pool.id) {
-            win.selectedCrossPool = null;
-        }
-        this.loadCrossPools(win);
+        await axios.delete(`${this.apiBaseUrl}/api/cross-pools/${pool.id}?keep_files=${keepFiles}`);
+        this.showToast('删除成功', 'success');
+        await this.loadCrossPools();
     } catch (e) {
         alert('删除失败: ' + (e.response?.data?.error || e.message));
     }
@@ -1833,6 +1839,12 @@ openFileManager() {
     }
 
     const win = {
+
+        crossPoolVolumes: [],          // 跨节点池的逻辑卷
+selectedCrossPoolVolume: null, // 选中的跨节点池逻辑卷
+        crossPools: [],           // 跨节点存储池列表
+selectedCrossPool: null,  // 选中的跨节点池
+crossPoolVolumes: [],     // 跨节点池的逻辑卷
         showPreview: false,
         previewFile: null,
         id: Date.now(),
@@ -1865,6 +1877,7 @@ openFileManager() {
     this.windows.push(win);
     this.loadFmNodes(win);
     this.loadCrossEcVolume(win);
+    this.loadFmCrossPools(win);
 },
 
         async loadCrossEcVolume(win) {
@@ -1877,7 +1890,78 @@ openFileManager() {
         win.crossEcVolume = null;
     }
 },
+async loadFmCrossPools(win) {
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/cross-pools`);
+        win.crossPools = res.data || [];
+    } catch (e) {
+        win.crossPools = [];
+    }
+},
 
+   async selectCrossPoolVolume(win, vol) {
+    win.selectedCrossPoolVolume = vol;
+    win.currentPath = '';
+    win.fmFilesLoading = true;
+
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/cross-pools/${win.selectedCrossPool.id}/files`, {
+            params: { subpath: vol.name }
+        });
+        win.fmFiles = (res.data.files || []).map(f => ({
+            id: f.id,              // 添加这行
+            name: f.filename,
+            is_dir: false,
+            size: f.file_size,
+            path: f.filepath,
+            type: 'cross-pool-file',
+            nodeId: f.node_id,
+            mtime: f.created_at    // 添加这行（用于显示时间）
+        }));
+    } catch (e) {
+        win.fmFiles = [];
+    }
+    win.fmFilesLoading = false;
+},
+
+   async selectFmCrossPool(win, pool) {
+    win.selectedFmNode = null;
+    win.selectedFmDisk = null;
+    win.selectedVolumeType = 'cross-pool';
+    win.selectedCrossPool = pool;
+    win.selectedPoolVolume = null;
+    win.currentPath = '';
+    win.fmFiles = [];
+    win.fmDisks = [];
+    win.fmEcVolume = null;
+    win.fmPoolVolumes = [];
+
+    // 加载跨节点池的逻辑卷列表
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/cross-pools/${pool.id}/volumes`);
+        win.crossPoolVolumes = res.data || [];
+    } catch (e) {
+        win.crossPoolVolumes = [];
+    }
+},
+
+async loadCrossPoolFiles(win, pool) {
+    win.fmFilesLoading = true;
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/cross-pools/${pool.id}/files`);
+        win.fmFiles = (res.data.files || []).map(f => ({
+            name: f.filename,
+            isDir: false,
+            size: f.file_size,
+            path: f.filepath,
+            type: 'cross-pool-file',
+            nodeId: f.node_id
+        }));
+    } catch (e) {
+        win.fmFiles = [];
+    }
+    win.fmFilesLoading = false;
+},
 
  async selectCrossEcVolume(win) {
     win.selectedFmNode = null;
@@ -2061,9 +2145,18 @@ async loadFmFiles(win) {
     win.fmFilesLoading = false;
 },
 async refreshFileList(win) {
-    await this.loadFmFiles(win);
+    if (win.selectedVolumeType === 'cross-pool' && win.selectedCrossPoolVolume) {
+        await this.selectCrossPoolVolume(win, win.selectedCrossPoolVolume);
+    } else if (win.selectedVolumeType === 'cross-ec') {
+        await this.loadCrossEcFiles(win);
+    } else if (win.selectedVolumeType === 'single-ec') {
+        await this.loadEcVolumeFiles(win);
+    } else if (win.selectedVolumeType === 'pool') {
+        await this.loadPoolVolumeFiles(win, win.selectedPoolVolume);
+    } else if (win.selectedFmDisk) {
+        await this.loadFmFiles(win);
+    }
 },
-
 openFileOrFolder(win, file) {
     if (file.is_dir) {
         win.currentPath = win.currentPath ? `${win.currentPath}/${file.name}` : file.name;
@@ -2116,7 +2209,30 @@ formatDate(timestamp) {
 
 async handleFmUpload(event, win) {
     const files = event.target.files;
-    if (!files.length || !win.selectedFmNode || !win.selectedFmDisk) {
+    if (!files.length) return;
+
+    // 跨节点存储池上传
+    if (win.selectedVolumeType === 'cross-pool' && win.selectedCrossPool && win.selectedCrossPoolVolume) {
+        for (const file of files) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('subpath', win.selectedCrossPoolVolume.name + (win.currentPath ? '/' + win.currentPath : ''));
+
+            try {
+                await axios.post(`${this.apiBaseUrl}/api/cross-pools/${win.selectedCrossPool.id}/upload`, formData, {
+                    headers: { 'Content-Type': 'multipart/form-data' }
+                });
+            } catch (e) {
+                alert(`上传 ${file.name} 失败: ${e.response?.data?.error || e.message}`);
+            }
+        }
+        await this.selectCrossPoolVolume(win, win.selectedCrossPoolVolume);
+        event.target.value = '';
+        return;
+    }
+
+    // 原有逻辑
+    if (!win.selectedFmNode || !win.selectedFmDisk) {
         alert('请先选择目标节点和磁盘');
         return;
     }
@@ -2143,6 +2259,12 @@ async handleFmUpload(event, win) {
 },
 
 async createFolder(win) {
+    // 跨节点存储池
+    if (win.selectedVolumeType === 'cross-pool') {
+        alert('跨节点存储池暂不支持创建文件夹，文件夹会在上传时自动创建');
+        return;
+    }
+
     if (!win.selectedFmNode || !win.selectedFmDisk) {
         alert('请先选择节点和磁盘');
         return;
@@ -2162,6 +2284,13 @@ async createFolder(win) {
 },
 
 async downloadFile(win, file) {
+    // 跨节点存储池下载
+    if (win.selectedVolumeType === 'cross-pool' && win.selectedCrossPool) {
+        const url = `${this.apiBaseUrl}/api/cross-pools/${win.selectedCrossPool.id}/download?filepath=${encodeURIComponent(file.path || file.name)}`;
+        window.open(url, '_blank');
+        return;
+    }
+
     // 跨节点EC文件下载
     if (win.selectedVolumeType === 'cross-ec') {
         const url = `${this.apiBaseUrl}/api/ec_download?name=${encodeURIComponent(file.name)}`;
@@ -2169,6 +2298,7 @@ async downloadFile(win, file) {
         return;
     }
 
+    // 普通文件下载
     const url = `${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/download?disk=${encodeURIComponent(win.selectedFmDisk)}&path=${encodeURIComponent(win.currentPath ? `${win.currentPath}/${file.name}` : file.name)}`;
     window.open(url, '_blank');
 },
@@ -2192,10 +2322,16 @@ previewFile(win, file) {
     }
 
     let url;
-    if (win.selectedVolumeType === 'cross-ec') {
-        // 跨节点EC文件预览
+    // 跨节点存储池预览
+    if (win.selectedVolumeType === 'cross-pool' && win.selectedCrossPool) {
+        url = `${this.apiBaseUrl}/api/cross-pools/${win.selectedCrossPool.id}/download?filepath=${encodeURIComponent(file.path || file.name)}`;
+    }
+    // 跨节点EC文件预览
+    else if (win.selectedVolumeType === 'cross-ec') {
         url = `${this.apiBaseUrl}/api/ec_download?name=${encodeURIComponent(file.name)}`;
-    } else {
+    }
+    // 普通文件预览
+    else {
         const path = win.currentPath ? `${win.currentPath}/${file.name}` : file.name;
         url = `${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/preview?disk=${encodeURIComponent(win.selectedFmDisk)}&path=${encodeURIComponent(path)}`;
     }
@@ -2241,6 +2377,16 @@ async deleteFile(win, file) {
     if (!confirm(`确定删除 "${file.name}" 吗？`)) return;
 
     try {
+        // 跨节点存储池删除
+        if (win.selectedVolumeType === 'cross-pool' && win.selectedCrossPool) {
+            await axios.delete(`${this.apiBaseUrl}/api/cross-pools/${win.selectedCrossPool.id}/files/${file.id || 0}`, {
+                params: { filepath: file.path }
+            });
+            await this.selectCrossPoolVolume(win, win.selectedCrossPoolVolume);
+            return;
+        }
+
+        // 原有逻辑
         await axios.post(`${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/delete`, {
             disk: win.selectedFmDisk,
             path: win.currentPath ? `${win.currentPath}/${file.name}` : file.name
@@ -2256,10 +2402,21 @@ async deleteSelected(win) {
 
     for (let name of win.selectedFiles) {
         try {
+            // 跨节点存储池删除
+            if (win.selectedVolumeType === 'cross-pool' && win.selectedCrossPool) {
+                const file = win.fmFiles.find(f => f.name === name);
+                if (file) {
+                    await axios.delete(`${this.apiBaseUrl}/api/cross-pools/${win.selectedCrossPool.id}/files/${file.id || 0}`, {
+                        params: { filepath: file.path }
+                    });
+                }
+            }
             // 跨节点EC文件删除
-            if (win.selectedVolumeType === 'cross-ec') {
+            else if (win.selectedVolumeType === 'cross-ec') {
                 await axios.delete(`${this.apiBaseUrl}/api/ec_file?name=${encodeURIComponent(name)}`);
-            } else {
+            }
+            // 普通文件删除
+            else {
                 await axios.delete(`${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/file`, {
                     data: {
                         disk: win.selectedFmDisk,
@@ -2274,7 +2431,9 @@ async deleteSelected(win) {
     win.selectedFiles = [];
 
     // 刷新文件列表
-    if (win.selectedVolumeType === 'cross-ec') {
+    if (win.selectedVolumeType === 'cross-pool') {
+        await this.selectCrossPoolVolume(win, win.selectedCrossPoolVolume);
+    } else if (win.selectedVolumeType === 'cross-ec') {
         this.loadCrossEcFiles(win);
     } else {
         this.loadFmFiles(win);

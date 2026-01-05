@@ -232,22 +232,52 @@ def update_pool(pool_id):
 @admin_required
 def delete_pool(pool_id):
     """删除跨节点池"""
+    # 获取删除选项
+    keep_files = request.args.get('keep_files', 'true').lower() == 'true'
+
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # 检查是否有文件
-    cursor.execute('SELECT COUNT(*) FROM cross_pool_files WHERE pool_id = ?', (pool_id,))
-    file_count = cursor.fetchone()[0]
-
-    if file_count > 0:
+    # 获取池信息
+    cursor.execute('SELECT id FROM cross_node_pools WHERE id = ? AND status != "deleted"', (pool_id,))
+    if not cursor.fetchone():
         conn.close()
-        return jsonify({'error': f'池中还有 {file_count} 个文件，请先清空'}), 400
+        return jsonify({'error': '池不存在'}), 404
 
+    # 获取文件列表
+    cursor.execute('SELECT id, node_id, real_path FROM cross_pool_files WHERE pool_id = ?', (pool_id,))
+    files = cursor.fetchall()
+
+    # 如果不保留文件，删除实际文件
+    if not keep_files and files:
+        for file_id, node_id, real_path in files:
+            cursor.execute('SELECT ip, port FROM nodes WHERE node_id = ?', (node_id,))
+            node = cursor.fetchone()
+            if node:
+                try:
+                    requests.post(
+                        f"http://{node[0]}:{node[1]}/api/internal/delete",
+                        json={'path': real_path},
+                        headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+                        timeout=10
+                    )
+                except Exception as e:
+                    print(f"[跨节点池] 删除文件失败 {real_path}: {e}")
+
+    # 删除文件记录
+    cursor.execute('DELETE FROM cross_pool_files WHERE pool_id = ?', (pool_id,))
+
+    # 删除逻辑卷记录
+    cursor.execute('DELETE FROM cross_pool_volumes WHERE pool_id = ?', (pool_id,))
+
+    # 标记池为已删除
     cursor.execute('UPDATE cross_node_pools SET status = "deleted" WHERE id = ?', (pool_id,))
+
     conn.commit()
     conn.close()
 
-    return jsonify({'success': True, 'message': '删除成功'})
+    msg = '删除成功（已保留实际文件）' if keep_files else '删除成功（已清理所有文件）'
+    return jsonify({'success': True, 'message': msg})
 
 
 # ========== 池状态/统计 ==========
@@ -647,7 +677,7 @@ def delete_file(pool_id, file_id):
         # 请求节点删除实际文件
         try:
             requests.post(
-                f"http://{node[0]}:{node[1]}/api/delete",
+                f"http://{node[0]}:{node[1]}/api/internal/delete",
                 json={'path': real_path},
                 headers={'X-NAS-Secret': NAS_SHARED_SECRET},
                 timeout=10
@@ -812,3 +842,140 @@ def delete_volume(pool_id, volume_name):
     conn.close()
 
     return jsonify({'success': True, 'message': '删除成功'})
+
+
+
+@cross_pool_bp.route('/api/cross-pools/<int:pool_id>/upload', methods=['POST'])
+@login_required
+def upload_file(pool_id):
+    """直接上传文件到跨节点池"""
+    if 'file' not in request.files:
+        return jsonify({'error': '没有文件'}), 400
+
+    file = request.files['file']
+    subpath = request.form.get('subpath', '')
+
+    if file.filename == '':
+        return jsonify({'error': '未选择文件'}), 400
+
+    # 根据策略选择目标磁盘
+    disk_info, error = select_disk_by_strategy(pool_id)
+    if error:
+        return jsonify({'error': error}), 400
+
+    node_id = disk_info.get('nodeId')
+    disk_path = disk_info.get('disk')
+
+    # 获取节点连接信息
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT ip, port FROM nodes WHERE node_id = ?', (node_id,))
+    node = cursor.fetchone()
+
+    if not node:
+        conn.close()
+        return jsonify({'error': '目标节点不存在'}), 404
+
+    node_ip, node_port = node[0], node[1]
+
+    # 生成存储路径
+    upload_dir = f"cross_pool/{subpath}".strip('/')
+    target_path = f"{disk_path}/{upload_dir}".replace('//', '/')
+    real_path = f"{target_path}/{file.filename}".replace('//', '/')
+
+    # 读取文件内容
+    file_data = file.read()
+    file_size = len(file_data)
+
+    # 代理上传到目标节点
+    try:
+        resp = requests.post(
+            f"http://{node_ip}:{node_port}/api/internal/upload",
+            files={'file': (file.filename, file_data)},
+            data={'path': target_path},
+            headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+            timeout=120
+        )
+        if resp.status_code != 200:
+            conn.close()
+            return jsonify({'error': f'上传到节点失败: {resp.text}'}), 500
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': f'连接节点失败: {str(e)}'}), 500
+
+    # 记录文件元数据
+    filepath = f"{subpath}/{file.filename}".strip('/')
+    cursor.execute('''
+        INSERT INTO cross_pool_files 
+        (pool_id, filename, filepath, node_id, node_ip, node_port, disk_path, real_path, file_size, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (pool_id, file.filename, filepath, node_id, node_ip, node_port, disk_path, real_path, file_size, session.get('username')))
+
+    file_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return jsonify({'success': True, 'file_id': file_id, 'message': '上传成功'})
+
+
+@cross_pool_bp.route('/api/cross-pools/<int:pool_id>/download', methods=['GET'])
+@login_required
+def download_file(pool_id):
+    """下载跨节点池文件"""
+    filepath = request.args.get('filepath')
+    file_id = request.args.get('file_id')
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    if file_id:
+        cursor.execute('''
+            SELECT node_id, real_path, filename FROM cross_pool_files
+            WHERE id = ? AND pool_id = ?
+        ''', (file_id, pool_id))
+    elif filepath:
+        cursor.execute('''
+            SELECT node_id, real_path, filename FROM cross_pool_files
+            WHERE filepath = ? AND pool_id = ?
+        ''', (filepath, pool_id))
+    else:
+        conn.close()
+        return jsonify({'error': '请指定 file_id 或 filepath'}), 400
+
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': '文件不存在'}), 404
+
+    node_id, real_path, filename = row
+
+    # 获取节点信息
+    cursor.execute('SELECT ip, port FROM nodes WHERE node_id = ?', (node_id,))
+    node = cursor.fetchone()
+    conn.close()
+
+    if not node:
+        return jsonify({'error': '节点不存在'}), 404
+
+    # 从节点获取文件
+    try:
+        resp = requests.get(
+            f"http://{node[0]}:{node[1]}/api/internal/download",
+            params={'path': real_path},
+            headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+            timeout=120,
+            stream=True
+        )
+        if resp.status_code != 200:
+            return jsonify({'error': '获取文件失败'}), 500
+
+        from flask import Response
+        return Response(
+            resp.iter_content(chunk_size=8192),
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Type': resp.headers.get('Content-Type', 'application/octet-stream')
+            }
+        )
+    except Exception as e:
+        return jsonify({'error': f'下载失败: {str(e)}'}), 500

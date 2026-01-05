@@ -1059,11 +1059,18 @@
                      placeholder="我的逻辑卷">
             </div>
             <div>
-              <label class="block text-sm font-medium mb-1">图标</label>
-              <input v-model="window.crossVolumeForm.icon"
-                     class="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
-                     placeholder="📁">
-            </div>
+  <label class="block text-sm font-medium mb-1">图标</label>
+  <div class="flex flex-wrap gap-2">
+    <button v-for="icon in ['📁', '🎬', '📄', '🎵', '🖼️', '🎮', '💼', '📦', '🔧', '📚', '📂', '🗂️', '📷', '💾', '📀', '💿', '🖥️', '☁️', '📝', '🔒']"
+            type="button"
+            :key="icon"
+            @click="window.crossVolumeForm.icon = icon"
+            :class="window.crossVolumeForm.icon === icon ? 'bg-purple-500 text-white' : 'bg-gray-100 hover:bg-gray-200'"
+            class="w-10 h-10 rounded-lg text-xl flex items-center justify-center transition">
+      {{ icon }}
+    </button>
+  </div>
+</div>
             <div>
               <label class="block text-sm font-medium mb-1">分配策略</label>
               <select v-model="window.crossVolumeForm.strategy"
@@ -1491,6 +1498,25 @@
         </div>
       </div>
 
+
+      <!-- 跨节点存储池 -->
+      <div v-for="pool in window.crossPools || []" :key="'pool-'+pool.id" class="border-b">
+        <div class="px-3 py-2 bg-gradient-to-r from-purple-50 to-indigo-50 text-sm font-semibold text-purple-700">
+          🗄️ {{ pool.display_name || pool.name }}
+        </div>
+        <div @click="selectFmCrossPool(window, pool)"
+             :class="window.selectedVolumeType === 'cross-pool' && window.selectedCrossPool?.id === pool.id ? 'bg-purple-50 border-l-4 border-purple-500' : 'hover:bg-gray-50 border-l-4 border-transparent'"
+             class="px-3 py-2 cursor-pointer transition-all">
+          <div class="flex items-center gap-2">
+            <span class="text-lg">📦</span>
+            <span class="text-sm font-medium">浏览文件</span>
+          </div>
+          <div class="text-xs text-gray-500 ml-6">跨节点池</div>
+        </div>
+      </div>
+
+
+
       <div class="px-3 py-2 bg-gray-50 border-b text-sm font-semibold text-gray-600">
         📡 节点
       </div>
@@ -1533,6 +1559,27 @@
             <div class="text-xs text-gray-500 ml-6">K={{ window.fmEcVolume.k }}, M={{ window.fmEcVolume.m }}</div>
           </div>
 
+
+
+          <!-- 跨节点池逻辑卷 -->
+          <template v-if="window.selectedVolumeType === 'cross-pool' && window.selectedCrossPool">
+            <div class="px-3 py-1 bg-purple-100 text-xs text-purple-600 font-medium">
+              {{ window.selectedCrossPool.display_name || window.selectedCrossPool.name }} 的逻辑卷
+            </div>
+            <div v-for="vol in window.crossPoolVolumes || []" :key="'cpv-'+vol.name"
+                 @click="selectCrossPoolVolume(window, vol)"
+                 :class="window.selectedCrossPoolVolume?.name === vol.name ? 'bg-purple-50 border-l-4 border-purple-500' : 'hover:bg-gray-50 border-l-4 border-transparent'"
+                 class="px-3 py-2 cursor-pointer transition-all border-b">
+              <div class="flex items-center gap-2">
+                <span class="text-lg">{{ vol.icon || '📂' }}</span>
+                <span class="text-sm font-semibold text-purple-700">{{ vol.display_name || vol.name }}</span>
+              </div>
+              <div class="text-xs text-gray-500 ml-6">跨节点逻辑卷</div>
+            </div>
+            <div v-if="!window.crossPoolVolumes?.length" class="px-3 py-4 text-center text-gray-400 text-sm">
+              暂无逻辑卷
+            </div>
+          </template>
           <!-- 存储池逻辑卷 -->
           <div v-for="vol in window.fmPoolVolumes || []" :key="vol.name"
                @click="selectFmVolume(window, 'pool', vol)"
@@ -1593,7 +1640,7 @@
           <div class="loading"></div>
         </div>
 
-        <template v-else-if="window.selectedFmDisk || window.selectedVolumeType === 'cross-ec' || window.selectedVolumeType === 'pool'">
+       <template v-else-if="window.selectedFmDisk || window.selectedVolumeType === 'cross-ec' || window.selectedVolumeType === 'pool' || window.selectedVolumeType === 'cross-pool'">
           <!-- 返回上级 -->
           <div v-if="window.currentPath"
                @click="goUpFolder(window)"
