@@ -179,15 +179,21 @@ bgPresets: [
         };
     },
     mounted() {
-        this.updateTime();
-        setInterval(() => this.updateTime(), 1000);
-        this.openNodeManagement();
-        this.checkAuth();
+    this.updateTime();
+    setInterval(() => this.updateTime(), 1000);
+    this.openNodeManagement();
+    this.checkAuth();
 
-          setInterval(() => {
-    this.refreshNodeMonitorStats();
-  }, 5000);
-    },
+    // 每5秒刷新监控统计
+    setInterval(() => {
+        this.refreshNodeMonitorStats();
+    }, 5000);
+
+    // 每10秒自动刷新节点列表
+    setInterval(() => {
+        this.refreshAllWindowsData();
+    }, 10000);
+},
     methods: {
 
 
@@ -214,7 +220,20 @@ bgPresets: [
 },
 
 
-
+       // 自动刷新所有窗口数据
+refreshAllWindowsData() {
+    this.windows.forEach(win => {
+        if (win.type === 'nodes' && !win.loading) {
+            this.loadNodesData(win);
+        }
+        if (win.type === 'permissions' && !win.loading) {
+            this.loadPermissionData(win);
+        }
+        if (win.type === 'space-allocation' && !win.loading) {
+            this.loadNodesForSpaceAllocation(win);
+        }
+    });
+},
 
         closeWindow(id) {
             const index = this.windows.findIndex(w => w.id === id);
@@ -2123,11 +2142,10 @@ async loadFmNodes(win) {
 },
 
 async selectFmNode(win, node) {
- if (node.status === 'offline') {
+    if (node.status === 'offline') {
         alert(`节点 ${node.name} 当前离线，无法访问`);
         return;
     }
-
 
     win.selectedFmNode = node;
     win.selectedFmDisk = null;
@@ -2141,31 +2159,36 @@ async selectFmNode(win, node) {
     win.fmPoolVolumes = [];
 
     try {
-        // 获取磁盘列表
-        const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/disks`);
-        const disksArray = res.data.disks || res.data || [];
+        // 并行请求所有数据
+        const [disksRes, ecRes, poolRes, volRes] = await Promise.allSettled([
+            axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/disks`),
+            axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/ec_config`),
+            axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/proxy/pool/status`),
+            axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/proxy/pool/volumes`)
+        ]);
 
-        // 获取EC配置
+        // 处理磁盘列表
+        const disksArray = disksRes.status === 'fulfilled'
+            ? (disksRes.value.data.disks || disksRes.value.data || [])
+            : [];
+
+        // 处理EC配置
         let ecDisks = [];
-        try {
-            const ecRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/ec_config`);
-            if (ecRes.data && ecRes.data.config && ecRes.data.config.disks) {
-                win.fmEcVolume = ecRes.data.config;
-                ecDisks = ecRes.data.config.disks.map(d => d.toUpperCase().replace(/\\/g, '/'));
-            }
-        } catch (e) {}
+        if (ecRes.status === 'fulfilled' && ecRes.value.data?.config?.disks) {
+            win.fmEcVolume = ecRes.value.data.config;
+            ecDisks = ecRes.value.data.config.disks.map(d => d.toUpperCase().replace(/\\/g, '/'));
+        }
 
-        // 获取存储池逻辑卷
+        // 处理存储池状态
         let poolDisks = [];
-        try {
-            const poolRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/proxy/pool/status`);
-            if (poolRes.data && poolRes.data.disks) {
-                poolDisks = poolRes.data.disks.map(d => d.toUpperCase().replace(/\\/g, '/'));
-            }
-            // 获取逻辑卷列表
-            const volRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/proxy/pool/volumes`);
-            win.fmPoolVolumes = volRes.data || [];
-        } catch (e) {}
+        if (poolRes.status === 'fulfilled' && poolRes.value.data?.disks) {
+            poolDisks = poolRes.value.data.disks.map(d => d.toUpperCase().replace(/\\/g, '/'));
+        }
+
+        // 处理逻辑卷列表
+        if (volRes.status === 'fulfilled') {
+            win.fmPoolVolumes = volRes.value.data || [];
+        }
 
         // 过滤磁盘
         win.fmDisks = disksArray.filter(d => {
@@ -2181,20 +2204,6 @@ async selectFmNode(win, node) {
         win.fmDisks = [];
     }
     win.fmDisksLoading = false;
-},
-
-        selectFmVolume(win, type, volume) {
-    win.selectedVolumeType = type === 'ec' ? 'single-ec' : 'pool';
-    win.selectedFmDisk = null;
-    win.selectedPoolVolume = type === 'pool' ? volume : null;
-    win.currentPath = '';
-    win.selectedFiles = [];
-
-    if (type === 'ec') {
-        this.loadEcVolumeFiles(win);
-    } else {
-        this.loadPoolVolumeFiles(win, volume);
-    }
 },
 
    async loadEcVolumeFiles(win) {

@@ -8,7 +8,7 @@ import time
 import subprocess
 import requests
 from pathlib import Path
-
+from flask import Flask, jsonify, g, send_from_directory  # 记得加这个
 from config import NAS_SHARED_SECRET
 
 # ========== 路径配置 ==========
@@ -286,6 +286,13 @@ def start_ngrok(silent=False):
 @app.route('/api/ngrok-url', methods=['GET'])
 def get_ngrok_url():
     return jsonify({"url": ngrok_url_global})
+
+# 🛠️ 强制服务图片文件的路由
+@app.route('/images/<path:filename>')
+def serve_custom_images(filename):
+    image_folder = os.path.join(app.config['FRONTEND_DIR'], 'images')
+    print(f"DEBUG: 尝试加载图片 -> {os.path.join(image_folder, filename)}") # 打印调试日志
+    return send_from_directory(image_folder, filename)
 
 
 # ========== 启动入口 ==========
