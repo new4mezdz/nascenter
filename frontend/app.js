@@ -105,6 +105,25 @@ iconEditMode: false,
 draggedIcon: null,
 longPressTimer: null,
 
+            // 客户端同步相关
+showSyncClientDialog: false,
+syncAvailableNodes: [],
+syncFileList: [],
+syncForm: {
+    sourceNode: '',
+    targetNodes: [],
+    mode: 'full',
+    selectedFiles: [],
+    backup: true
+},
+syncProgress: {
+    show: false,
+    status: '',
+    current: 0,
+    total: 0,
+    results: []
+},
+
             // 节点分组相关
             showGroupDialog: false,
             groupDialogMode: 'create',  // 'create' | 'edit'
@@ -1735,6 +1754,104 @@ async deleteECConfig(win) {
         this.loadMonitorOverview(win); // 调用新的加载函数
         this.showStartMenu = false;
     },
+
+
+// ============ 客户端同步 ============
+async openSyncClientDialog() {
+    this.showStartMenu = false;
+
+    // 加载在线节点
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes`);
+        this.syncAvailableNodes = res.data.filter(n => n.status === 'online');
+    } catch (e) {
+        alert('获取节点列表失败');
+        return;
+    }
+
+    // 重置表单
+    this.syncForm = {
+        sourceNode: '',
+        targetNodes: [],
+        mode: 'full',
+        selectedFiles: [],
+        backup: true
+    };
+    this.syncFileList = [];
+    this.syncProgress = { show: false, status: '', current: 0, total: 0, results: [] };
+
+    this.showSyncClientDialog = true;
+},
+
+selectAllTargetNodes() {
+    const available = this.syncAvailableNodes.filter(n => n.status === 'online' && n.id !== this.syncForm.sourceNode);
+    if (this.syncForm.targetNodes.length === available.length) {
+        this.syncForm.targetNodes = [];
+    } else {
+        this.syncForm.targetNodes = available.map(n => n.id);
+    }
+},
+
+async loadSourceFiles() {
+    if (!this.syncForm.sourceNode) return;
+
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/admin/node-files/${this.syncForm.sourceNode}`);
+        this.syncFileList = res.data.files || [];
+    } catch (e) {
+        alert('获取文件列表失败: ' + (e.response?.data?.error || e.message));
+    }
+},
+
+async startSyncClient() {
+    if (!this.syncForm.sourceNode || this.syncForm.targetNodes.length === 0) {
+        alert('请选择源节点和目标节点');
+        return;
+    }
+
+    if (this.syncForm.mode === 'selective' && this.syncForm.selectedFiles.length === 0) {
+        alert('请选择要同步的文件');
+        return;
+    }
+
+    if (!confirm(`确定要将 ${this.syncForm.targetNodes.length} 个节点同步为源节点的版本吗？`)) {
+        return;
+    }
+
+    this.syncProgress = {
+        show: true,
+        status: '正在同步...',
+        current: 0,
+        total: this.syncForm.targetNodes.length,
+        results: []
+    };
+
+    try {
+        const res = await axios.post(`${this.apiBaseUrl}/api/admin/sync-client`, {
+            source_node: this.syncForm.sourceNode,
+            target_nodes: this.syncForm.targetNodes,
+            mode: this.syncForm.mode,
+            selected_files: this.syncForm.selectedFiles,
+            backup: this.syncForm.backup
+        });
+
+        if (res.data.success) {
+            this.syncProgress.results = Object.entries(res.data.results).map(([nodeId, result]) => ({
+                nodeId,
+                success: result.success,
+                error: result.error || result.message
+            }));
+            this.syncProgress.current = this.syncProgress.total;
+            this.syncProgress.status = '同步完成';
+
+            const successCount = this.syncProgress.results.filter(r => r.success).length;
+            alert(`同步完成！成功: ${successCount}/${this.syncProgress.total}`);
+        }
+    } catch (e) {
+        this.syncProgress.status = '同步失败';
+        alert('同步失败: ' + (e.response?.data?.error || e.message));
+    }
+},
 
 
 async fetchNodeMonitorStats(nodeId) {

@@ -296,3 +296,94 @@ def access_rejected():
 def get_audit_logs():
     """获取审计日志（简化版）"""
     return jsonify([])
+
+
+# ============ 客户端同步推送 ============
+import requests
+
+@admin_bp.route('/api/admin/node-files/<node_id>', methods=['GET'])
+@login_required
+@admin_required
+def get_node_client_files(node_id):
+    """获取节点客户端文件列表（用于选择性同步）"""
+    node_config = get_node_config_by_id(node_id)
+    if not node_config:
+        return jsonify({'error': '节点不存在'}), 404
+
+    try:
+        resp = requests.get(
+            f"http://{node_config['ip']}:{node_config['port']}/api/client-files",
+            headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+            timeout=30
+        )
+        return jsonify(resp.json()), resp.status_code
+    except Exception as e:
+        return jsonify({'error': f'获取文件列表失败: {str(e)}'}), 500
+
+
+
+@admin_bp.route('/api/admin/sync-client', methods=['POST'])
+@login_required
+@admin_required
+def sync_client():
+    """从源节点同步客户端到目标节点"""
+    data = request.json
+    source_id = data.get('source_node')
+    target_ids = data.get('target_nodes', [])
+    mode = data.get('mode', 'full')  # full 或 selective
+    selected_files = data.get('selected_files', [])
+    backup = data.get('backup', True)
+
+    if not source_id or not target_ids:
+        return jsonify({'error': '缺少源节点或目标节点'}), 400
+
+    # 获取源节点信息
+    source = get_node_config_by_id(source_id)
+    if not source:
+        return jsonify({'error': '源节点不存在'}), 404
+
+    # 1. 从源节点拉取代码包
+    try:
+        export_url = f"http://{source['ip']}:{source['port']}/api/export-client"
+        params = {}
+        if mode == 'selective' and selected_files:
+            params['files'] = ','.join(selected_files)
+
+        resp = requests.get(
+            export_url,
+            params=params,
+            headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+            timeout=120
+        )
+        if resp.status_code != 200:
+            return jsonify({'error': f'从源节点拉取失败: {resp.text}'}), 500
+
+        package_data = resp.content
+    except Exception as e:
+        return jsonify({'error': f'连接源节点失败: {str(e)}'}), 500
+
+    # 2. 推送到各目标节点
+    results = {}
+    for target_id in target_ids:
+        if target_id == source_id:
+            results[target_id] = {'success': True, 'message': '跳过源节点'}
+            continue
+
+        target = get_node_config_by_id(target_id)
+        if not target:
+            results[target_id] = {'success': False, 'error': '节点不存在'}
+            continue
+
+        try:
+            resp = requests.post(
+                f"http://{target['ip']}:{target['port']}/api/receive-update",
+                files={'package': ('client.tar.gz', package_data)},
+                data={'backup': '1' if backup else '0'},
+                headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+                timeout=180
+            )
+            results[target_id] = resp.json()
+        except Exception as e:
+            results[target_id] = {'success': False, 'error': str(e)}
+
+    return jsonify({'success': True, 'results': results})

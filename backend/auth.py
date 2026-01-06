@@ -1,9 +1,12 @@
 # auth.py - 认证装饰器
 from functools import wraps
-from flask import session, jsonify
+from flask import session, jsonify, request
+import jwt
 import sqlite3
 from common import PERMISSION_MAP
 
+
+ACCESS_TOKEN_SECRET = 'your-access-token-secret-key'  # 与管理端一致
 
 def login_required(f):
     """要求登录的装饰器"""
@@ -32,45 +35,49 @@ def admin_required(f):
 
 
 def permission_required(required_level_name):
-    """
-    权限检查装饰器
-    检查当前登录用户的 file_permission 是否满足要求
-    """
+    """权限检查装饰器 - 支持 session 和 URL token"""
+
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
-            if 'user_id' not in session:
+            user_id = None
+            file_permission = None
+            role = None
+
+            # 方式1: 检查 session
+            if 'user_id' in session:
+                user_id = session['user_id']
+                file_permission = session.get('file_permission', 'readonly')
+                role = session.get('role', 'user')
+
+            # 方式2: 检查 URL token
+            if not user_id:
+                token = request.args.get('token')
+                if token:
+                    try:
+                        payload = jwt.decode(token, ACCESS_TOKEN_SECRET, algorithms=['HS256'])
+                        user_id = payload.get('user_id')
+                        file_permission = payload.get('file_permission', 'readonly')
+                        role = payload.get('role', 'user')
+                    except:
+                        pass
+
+            if not user_id:
                 return jsonify({"error": "未登录"}), 401
 
-            conn = None
-            try:
-                conn = sqlite3.connect('nas_center.db')
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
-                cursor.execute('SELECT role, file_permission FROM users WHERE id = ?', (session['user_id'],))
-                user = cursor.fetchone()
+            # 管理员自动放行
+            if role == 'admin':
+                return f(*args, **kwargs)
 
-                if not user:
-                    return jsonify({"error": "用户不存在"}), 401
+            # 比较权限等级
+            user_level = PERMISSION_MAP.get(file_permission, 0)
+            required_level = PERMISSION_MAP.get(required_level_name, 99)
 
-                # 管理员自动放行
-                if user['role'] == 'admin':
-                    return f(*args, **kwargs)
-
-                # 比较权限等级
-                user_level = PERMISSION_MAP.get(user['file_permission'], 0)
-                required_level = PERMISSION_MAP.get(required_level_name, 99)
-
-                if user_level >= required_level:
-                    return f(*args, **kwargs)
-                else:
-                    return jsonify({"error": "权限不足", "message": f"此操作需要 {required_level_name} 权限"}), 403
-
-            except Exception as e:
-                return jsonify({"error": "权限检查失败", "message": str(e)}), 500
-            finally:
-                if conn:
-                    conn.close()
+            if user_level >= required_level:
+                return f(*args, **kwargs)
+            else:
+                return jsonify({"error": "权限不足"}), 403
 
         return decorated_function
+
     return decorator

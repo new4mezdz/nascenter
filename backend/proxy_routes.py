@@ -91,7 +91,7 @@ def proxy_to_node_page(node_id, subpath):
         print(f"[页面代理转发] {target_url}")
 
         headers = {}
-        excluded_headers = ['host', 'connection', 'content-length', 'content-encoding', 'transfer-encoding']
+        excluded_headers = ['host', 'connection', 'content-length', 'content-encoding', 'transfer-encoding', 'if-modified-since', 'if-none-match']
         for key, value in request.headers:
             if key.lower() not in excluded_headers:
                 headers[key] = value
@@ -103,24 +103,13 @@ def proxy_to_node_page(node_id, subpath):
                 timeout = 30
 
             if request.method == 'GET':
-                response = requests.get(target_url, headers=headers, timeout=timeout, stream=True)
+                response = requests.get(target_url, headers=headers, timeout=timeout)
             elif request.method == 'POST':
-                response = requests.post(target_url,
-                                         headers=headers,
-                                         data=request.get_data(),
-                                         timeout=timeout,
-                                         stream=True)
+                response = requests.get(target_url, headers=headers, timeout=timeout)
             elif request.method == 'PUT':
-                response = requests.put(target_url,
-                                        headers=headers,
-                                        data=request.get_data(),
-                                        timeout=timeout,
-                                        stream=True)
+                response = requests.get(target_url, headers=headers, timeout=timeout)
             elif request.method == 'DELETE':
-                response = requests.delete(target_url,
-                                           headers=headers,
-                                           timeout=timeout,
-                                           stream=True)
+                response = requests.get(target_url, headers=headers, timeout=timeout)
             else:
                 return jsonify({'error': '不支持的请求方法'}), 405
 
