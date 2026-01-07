@@ -458,10 +458,7 @@ async saveCrossEcConfig(window) {
 });
     }
 
-    if (nodes.length < 2) {
-        alert('跨节点EC至少需要选择2个节点');
-        return;
-    }
+
 
     const totalDisks = this.countSelectedCrossDisks(window);
     if (totalDisks < window.crossEcForm.k + window.crossEcForm.m) {
@@ -906,23 +903,23 @@ async executeExportCrossEcFiles(window) {
     let failCount = 0;
 
     for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        window.exportProgress.current = i + 1;
-        window.exportProgress.status = `正在导出: ${file.filename}`;
+    const file = files[i];
+    window.exportProgress.current = i + 1;
+    window.exportProgress.status = `正在导出: ${file.name}`;
 
-        try {
-            await axios.post(`${this.apiBaseUrl}/api/cross_ec_export`, {
-                filename: file.filename,
-                target_node: window.exportForm.selectedNode,
-                target_disk: window.exportForm.selectedDisk,
-                target_path: window.exportForm.exportPath || 'ec_export'
-            });
-            successCount++;
-        } catch (e) {
-            console.error(`导出 ${file.filename} 失败:`, e);
-            failCount++;
-        }
+    try {
+        await axios.post(`${this.apiBaseUrl}/api/cross_ec_export`, {
+            filename: file.name,
+            target_node: window.exportForm.selectedNode,
+            target_disk: window.exportForm.selectedDisk,
+            target_path: window.exportForm.exportPath || 'ec_export'
+        });
+        successCount++;
+    } catch (e) {
+        console.error(`导出 ${file.name} 失败:`, e);
+        failCount++;
     }
+}
 
     window.exportProgress.show = false;
     window.showExportCrossEcDialog = false;
@@ -952,6 +949,55 @@ async loadEcFilesForRebuild(window) {
     } catch (e) {
         window.rebuildFiles = [];
     }
+},
+
+// 检测跨节点EC磁盘状态
+async checkCrossEcDiskStatus(win) {
+    if (!win.crossEcConfig?.nodes) return;
+
+    // 初始化磁盘状态对象
+    win.crossEcDiskStatus = {};
+
+    for (const nodeInfo of win.crossEcConfig.nodes) {
+        const nodeId = nodeInfo.node_id || nodeInfo.nodeId;
+        const node = (win.allNodes || []).find(n => n.id === nodeId);
+
+        if (!node || node.status !== 'online') {
+            // 节点离线，所有磁盘标记为离线
+            for (const disk of nodeInfo.disks) {
+                win.crossEcDiskStatus[`${nodeId}:${disk}`] = 'offline';
+            }
+            continue;
+        }
+
+        // 节点在线，检测实际磁盘
+        try {
+            const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${nodeId}/disks`);
+            const actualDisks = (res.data.disks || res.data || []).map(d =>
+                (d.mount || d.path || '').toUpperCase().replace(/\\/g, '/').replace(/\/+$/, '')
+            );
+
+            for (const disk of nodeInfo.disks) {
+                const normalizedDisk = disk.toUpperCase().replace(/\\/g, '/').replace(/\/+$/, '');
+                if (actualDisks.includes(normalizedDisk)) {
+                    win.crossEcDiskStatus[`${nodeId}:${disk}`] = 'online';
+                } else {
+                    win.crossEcDiskStatus[`${nodeId}:${disk}`] = 'missing';
+                }
+            }
+        } catch (e) {
+            // 获取磁盘失败，标记为未知
+            for (const disk of nodeInfo.disks) {
+                win.crossEcDiskStatus[`${nodeId}:${disk}`] = 'unknown';
+            }
+        }
+    }
+},
+
+// 获取磁盘状态
+getDiskStatus(win, nodeId, disk) {
+    const key = `${nodeId}:${disk}`;
+    return win.crossEcDiskStatus?.[key] || 'unknown';
 },
 
 // 检测丢失的分片
@@ -2174,10 +2220,11 @@ async loadEcWindowData(win) {
     }
     // 先加载跨节点EC配置
     await this.loadCrossEcConfig(win);
+    // 检测磁盘实际状态
+    await this.checkCrossEcDiskStatus(win);
     // 启动EC状态轮询（包含首次加载）
     await this.loadEcStatus(win);
 },
-
 async loadNodesForECConfig(win) {
     try {
         const res = await axios.get(`${this.apiBaseUrl}/api/nodes`);
@@ -2882,7 +2929,47 @@ async handleFmUpload(event, win) {
         return;
     }
 
-    // 原有逻辑
+    // 跨节点EC上传
+    if (win.selectedVolumeType === 'cross-ec') {
+        for (const file of files) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                await axios.post(`${this.apiBaseUrl}/api/ec_upload`, formData, {
+                    headers: { 'Content-Type': 'multipart/form-data' }
+                });
+            } catch (e) {
+                alert(`上传 ${file.name} 失败: ${e.response?.data?.error || e.message}`);
+            }
+        }
+        alert('上传成功！');
+        await this.loadCrossEcFiles(win);
+        event.target.value = '';
+        return;
+    }
+
+    // 单节点EC上传
+    if (win.selectedVolumeType === 'single-ec' && win.selectedFmNode) {
+        for (const file of files) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                await axios.post(`${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/ec_upload`, formData, {
+                    headers: { 'Content-Type': 'multipart/form-data' }
+                });
+            } catch (e) {
+                alert(`上传 ${file.name} 失败: ${e.response?.data?.error || e.message}`);
+            }
+        }
+        alert('上传成功！');
+        await this.loadFmFiles(win);
+        event.target.value = '';
+        return;
+    }
+
+    // 普通磁盘上传
     if (!win.selectedFmNode || !win.selectedFmDisk) {
         alert('请先选择目标节点和磁盘');
         return;
@@ -2909,6 +2996,42 @@ async handleFmUpload(event, win) {
     event.target.value = '';
 },
 
+// 执行跨节点EC健康检查
+async performCrossEcHealthCheck(win) {
+    win.crossEcHealthChecking = true;
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/cross_ec_config/health_check`);
+        win.crossEcHealthReport = {
+            healthy: res.data.healthy_files || 0,
+            at_risk: res.data.at_risk_files || 0,
+            corrupted: res.data.corrupted_files || 0,
+            total: res.data.total_files || 0
+        };
+    } catch (e) {
+        alert('健康检查失败: ' + (e.response?.data?.error || e.message));
+    }
+    win.crossEcHealthChecking = false;
+},
+
+// 获取离线的节点列表
+getCrossEcOfflineNodes(win) {
+    if (!win.crossEcConfig?.nodes) return [];
+    return win.crossEcConfig.nodes.filter(nodeInfo => {
+        const nodeId = nodeInfo.node_id || nodeInfo.nodeId;
+        return !this.getNodeOnlineStatus(win, nodeId);
+    });
+},
+        hasCrossEcOfflineDisks(win) {
+    if (!win.crossEcConfig?.nodes) return false;
+    // 检查是否有节点离线或磁盘状态异常
+    for (const nodeInfo of win.crossEcConfig.nodes) {
+        const nodeId = nodeInfo.node_id || nodeInfo.nodeId;
+        if (!this.getNodeOnlineStatus(win, nodeId)) {
+            return true; // 节点离线
+        }
+    }
+    return false;
+},
 async createFolder(win) {
     // 跨节点存储池
     if (win.selectedVolumeType === 'cross-pool') {

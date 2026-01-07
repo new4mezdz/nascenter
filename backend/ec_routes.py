@@ -395,12 +395,16 @@ def get_cross_ec_config():
     if not row:
         return jsonify({'success': True, 'config': None})
 
+    nodes = json.loads(row[4]) if row[4] else []
+    total_disks = sum(len(n.get('disks', [])) for n in nodes)
+
     config = {
         'id': row[0],
         'name': row[1],
         'k': row[2],
         'm': row[3],
-        'nodes': json.loads(row[4]),
+        'nodes': nodes,
+        'totalDisks': total_disks,
         'status': row[5],
         'created_at': row[6]
     }
@@ -422,8 +426,7 @@ def save_cross_ec_config():
     if not k or not m:
         return jsonify({'error': '缺少k或m参数'}), 400
 
-    if not nodes or len(nodes) < 2:
-        return jsonify({'error': '跨节点EC至少需要2个节点'}), 400
+
 
     total_disks = sum(len(n.get('disks', [])) for n in nodes)
     if total_disks < k + m:
@@ -1332,3 +1335,113 @@ def export_cross_ec_to_node():
             return jsonify({'error': f'写入失败: {resp.text}'}), 500
     except Exception as e:
         return jsonify({'error': f'导出失败: {str(e)}'}), 500
+
+
+@ec_bp.route('/api/cross_ec_config/health_check', methods=['GET'])
+@login_required
+def cross_ec_health_check():
+    """跨节点EC健康检查"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # 获取EC配置
+        cursor.execute('SELECT k, m, nodes FROM cross_ec_config WHERE status = ?', ('active',))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'error': '未配置跨节点EC'}), 404
+
+        k = row[0]
+        m = row[1]
+        nodes = json.loads(row[2]) if row[2] else []
+
+        # 获取所有在线节点
+        online_nodes = {}
+        cursor.execute('SELECT node_id, ip, port FROM nodes WHERE status = ?', ('online',))
+        for r in cursor.fetchall():
+            online_nodes[str(r[0])] = {'ip': r[1], 'port': r[2]}
+        # 构建在线磁盘集合
+        online_disks = set()
+        for node_info in nodes:
+            node_id = str(node_info.get('node_id') or node_info.get('nodeId') or '')
+            if node_id not in online_nodes:
+                continue
+
+            node_conn = online_nodes[node_id]
+            try:
+                import requests
+                url = f"http://{node_conn['ip']}:{node_conn['port']}/api/disks"
+                resp = requests.get(url, timeout=5)
+                if resp.status_code == 200:
+                    actual_disks = resp.json()
+                    actual_mounts = set()
+                    for d in actual_disks:
+                        mount = (d.get('mount') or d.get('path') or '').upper().replace('\\', '/').rstrip('/')
+                        actual_mounts.add(mount)
+
+                    for disk in node_info.get('disks', []):
+                        normalized_disk = disk.upper().replace('\\', '/').rstrip('/')
+                        if normalized_disk in actual_mounts:
+                            online_disks.add(f"{node_id}:{disk}")
+            except Exception as e:
+                print(f"获取节点 {node_id} 磁盘失败: {e}")
+                continue
+
+        # 获取所有EC文件
+        cursor.execute('SELECT filename, disks FROM cross_ec_files')
+        files = cursor.fetchall()
+        conn.close()
+
+        healthy_files = 0
+        at_risk_files = 0
+        corrupted_files = 0
+
+        for filename, disks_json in files:
+            try:
+                if not disks_json:
+                    corrupted_files += 1
+                    continue
+
+                disks = json.loads(disks_json) if isinstance(disks_json, str) else disks_json
+
+                if not isinstance(disks, list):
+                    corrupted_files += 1
+                    continue
+
+                # 统计在线的分片数
+                online_shards = 0
+                for disk_info in disks:
+                    if isinstance(disk_info, dict):
+                        node_id = str(disk_info.get('node_id') or disk_info.get('nodeId') or '')
+                        disk = disk_info.get('disk', '')
+                        if f"{node_id}:{disk}" in online_disks:
+                            online_shards += 1
+
+                # 判断文件状态
+                if online_shards >= k + m:
+                    healthy_files += 1
+                elif online_shards >= k:
+                    at_risk_files += 1
+                else:
+                    corrupted_files += 1
+
+            except Exception as e:
+                print(f"检查文件 {filename} 失败: {e}")
+                corrupted_files += 1
+
+        return jsonify({
+            'success': True,
+            'total_files': len(files),
+            'healthy_files': healthy_files,
+            'at_risk_files': at_risk_files,
+            'corrupted_files': corrupted_files,
+            'online_disks': len(online_disks),
+            'total_disks': sum(len(n.get('disks', [])) for n in nodes)
+        })
+
+    except Exception as e:
+        print(f"健康检查失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500

@@ -2523,19 +2523,54 @@
           </div>
         </div>
 
-        <!-- 节点磁盘分布 -->
-        <div class="border-t pt-4">
+        <!-- 健康检查区域 -->
+        <div class="border-t pt-4 mb-4">
           <div class="flex justify-between items-center mb-3">
-            <h5 class="font-semibold">磁盘分布</h5>
-            <div class="flex gap-2">
-              <button @click="openAddDiskToCrossEc(window)" class="px-3 py-1.5 bg-green-500 text-white rounded hover:bg-green-600 text-sm">
-                ➕ 添加磁盘
-              </button>
-              <button @click="openRebuildShards(window)" class="px-3 py-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 text-sm">
-                🔧 重建分片
-              </button>
+            <h5 class="font-semibold">🏥 健康检查</h5>
+            <button @click="performCrossEcHealthCheck(window)"
+                    :disabled="window.crossEcHealthChecking"
+                    class="px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm disabled:opacity-50">
+              {{ window.crossEcHealthChecking ? '检查中...' : '🔍 执行检查' }}
+            </button>
+          </div>
+
+          <!-- 健康检查结果 -->
+          <div v-if="window.crossEcHealthReport" class="grid grid-cols-3 gap-3 mb-3">
+            <div class="bg-green-50 p-3 rounded-lg text-center">
+              <div class="text-xs text-green-600">健康文件</div>
+              <div class="text-2xl font-bold text-green-700">{{ window.crossEcHealthReport.healthy || 0 }}</div>
+            </div>
+            <div class="bg-yellow-50 p-3 rounded-lg text-center">
+              <div class="text-xs text-yellow-600">风险文件</div>
+              <div class="text-2xl font-bold text-yellow-700">{{ window.crossEcHealthReport.at_risk || 0 }}</div>
+            </div>
+            <div class="bg-red-50 p-3 rounded-lg text-center">
+              <div class="text-xs text-red-600">损坏文件</div>
+              <div class="text-2xl font-bold text-red-700">{{ window.crossEcHealthReport.corrupted || 0 }}</div>
             </div>
           </div>
+
+          <!-- 磁盘状态警告 -->
+          <div v-if="getCrossEcOfflineNodes(window).length > 0" class="bg-red-50 border border-red-200 rounded-lg p-3 mb-3">
+            <p class="text-sm text-red-800 font-semibold mb-1">🔴 离线节点 ({{ getCrossEcOfflineNodes(window).length }}个)</p>
+            <p class="text-sm text-red-700">{{ getCrossEcOfflineNodes(window).map(n => n.nodeName).join(', ') }}</p>
+          </div>
+
+          <!-- 操作按钮 - 只有出问题时才显示 -->
+          <div v-if="hasCrossEcOfflineDisks(window) || (window.crossEcHealthReport && (window.crossEcHealthReport.at_risk > 0 || window.crossEcHealthReport.corrupted > 0))"
+               class="flex gap-2">
+            <button @click="openAddDiskToCrossEc(window)" class="px-3 py-1.5 bg-green-500 text-white rounded hover:bg-green-600 text-sm">
+              ➕ 添加磁盘
+            </button>
+            <button @click="openRebuildShards(window)" class="px-3 py-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 text-sm">
+              🔧 重建分片
+            </button>
+          </div>
+        </div>
+
+        <!-- 节点磁盘分布 -->
+        <div class="border-t pt-4">
+          <h5 class="font-semibold mb-3">磁盘分布</h5>
           <div class="grid grid-cols-2 gap-4">
             <div v-for="nodeInfo in window.crossEcConfig.nodes" :key="nodeInfo.node_id || nodeInfo.nodeId"
                  class="bg-gray-50 p-4 rounded-lg border">
@@ -2549,12 +2584,20 @@
                 </span>
               </div>
               <div class="flex flex-wrap gap-2">
-                <span v-for="disk in nodeInfo.disks" :key="disk"
-                      class="px-2 py-1 rounded text-sm font-mono"
-                      :class="getNodeOnlineStatus(window, nodeInfo.node_id || nodeInfo.nodeId) ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'">
-                  💾 {{ disk }}
-                </span>
-              </div>
+  <span v-for="disk in nodeInfo.disks" :key="disk"
+        class="px-2 py-1 rounded text-sm font-mono"
+        :class="{
+          'bg-green-100 text-green-700': getDiskStatus(window, nodeInfo.node_id || nodeInfo.nodeId, disk) === 'online',
+          'bg-red-100 text-red-700': getDiskStatus(window, nodeInfo.node_id || nodeInfo.nodeId, disk) === 'offline',
+          'bg-yellow-100 text-yellow-700': getDiskStatus(window, nodeInfo.node_id || nodeInfo.nodeId, disk) === 'missing',
+          'bg-gray-100 text-gray-700': getDiskStatus(window, nodeInfo.node_id || nodeInfo.nodeId, disk) === 'unknown'
+        }">
+    <span v-if="getDiskStatus(window, nodeInfo.node_id || nodeInfo.nodeId, disk) === 'online'">💾</span>
+    <span v-else-if="getDiskStatus(window, nodeInfo.node_id || nodeInfo.nodeId, disk) === 'missing'">⚠️</span>
+    <span v-else>❌</span>
+    {{ disk }}
+  </span>
+</div>
             </div>
           </div>
         </div>
