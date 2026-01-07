@@ -37,6 +37,18 @@ def node_register():
     else:
         node_ip = real_ip
 
+    # 检查节点之前的状态（用于判断是否是从离线变为在线）
+    old_status = None
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute('SELECT status FROM nodes WHERE node_id = ?', (node_id,))
+        row = cursor.fetchone()
+        if row:
+            old_status = row['status']
+    except:
+        pass
+
     ACTIVE_NODES[node_id] = {
         'id': node_id,
         'name': data.get('name', '未命名节点'),
@@ -49,7 +61,88 @@ def node_register():
 
     update_node_config(node_id, data)
 
+    # ✅ 节点从离线变为在线时，处理待处理任务
+    if old_status and old_status != 'online':
+        try:
+            _process_pending_tasks_for_node(node_id)
+        except Exception as e:
+            print(f"[待处理任务] 处理节点 {node_id} 的任务失败: {e}")
+
     return jsonify({'success': True, 'message': '注册成功'})
+
+
+def _process_pending_tasks_for_node(node_id):
+    """处理指定节点的待处理任务"""
+    import sqlite3
+
+    conn = sqlite3.connect('nas_center.db')
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # 获取该节点的待处理任务
+    cursor.execute('''
+        SELECT id, task_type, params FROM pending_tasks
+        WHERE status = 'pending' AND node_id = ?
+    ''', (node_id,))
+    tasks = cursor.fetchall()
+
+    if not tasks:
+        conn.close()
+        return
+
+    # 获取节点信息
+    cursor.execute('SELECT ip, port FROM nodes WHERE node_id = ?', (node_id,))
+    node = cursor.fetchone()
+
+    if not node:
+        conn.close()
+        return
+
+    node_ip, node_port = node['ip'], node['port']
+
+    for task in tasks:
+        task_id = task['id']
+        task_type = task['task_type']
+        params = json.loads(task['params']) if task['params'] else {}
+
+        success = False
+        error_msg = None
+
+        try:
+            if task_type == 'delete_pool_files':
+                target_dir = params.get('target_dir')
+                resp = requests.post(
+                    f"http://{node_ip}:{node_port}/api/internal/delete-dir",
+                    json={'path': target_dir},
+                    headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+                    timeout=60
+                )
+                success = resp.status_code == 200
+                if not success:
+                    error_msg = resp.text
+            else:
+                error_msg = f'未知任务类型: {task_type}'
+        except Exception as e:
+            error_msg = str(e)
+
+        # 更新任务状态
+        if success:
+            cursor.execute('''
+                UPDATE pending_tasks 
+                SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (task_id,))
+            print(f"[待处理任务] 节点 {node_id} 任务 {task_id} 执行成功")
+        else:
+            cursor.execute('''
+                UPDATE pending_tasks 
+                SET retry_count = retry_count + 1, last_error = ?
+                WHERE id = ?
+            ''', (error_msg, task_id))
+            print(f"[待处理任务] 节点 {node_id} 任务 {task_id} 执行失败: {error_msg}")
+
+    conn.commit()
+    conn.close()
 
 @node_bp.route('/api/nodes', methods=['GET'])
 @login_required

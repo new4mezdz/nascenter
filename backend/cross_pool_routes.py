@@ -65,7 +65,20 @@ def init_cross_pool_tables():
                 UNIQUE(pool_id, name)
             )
         ''')
-
+    # 待处理任务表（用于离线节点的延迟操作）
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS pending_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_type TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            params TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            status TEXT DEFAULT 'pending',
+            retry_count INTEGER DEFAULT 0,
+            last_error TEXT,
+            completed_at DATETIME
+        )
+    ''')
     conn.commit()
     conn.close()
     print("[跨节点池] 数据表初始化完成")
@@ -232,53 +245,102 @@ def update_pool(pool_id):
 @admin_required
 def delete_pool(pool_id):
     """删除跨节点池"""
-    # 获取删除选项
     keep_files = request.args.get('keep_files', 'true').lower() == 'true'
 
     conn = get_db_connection()
     cursor = conn.cursor()
 
     # 获取池信息
-    cursor.execute('SELECT id FROM cross_node_pools WHERE id = ? AND status != "deleted"', (pool_id,))
-    if not cursor.fetchone():
+    cursor.execute('SELECT id, name, disks FROM cross_node_pools WHERE id = ? AND status != "deleted"', (pool_id,))
+    pool = cursor.fetchone()
+    if not pool:
         conn.close()
         return jsonify({'error': '池不存在'}), 404
 
-    # 获取文件列表
-    cursor.execute('SELECT id, node_id, real_path FROM cross_pool_files WHERE pool_id = ?', (pool_id,))
-    files = cursor.fetchall()
+    pool_name = pool[1]
+    disks = json.loads(pool[2]) if pool[2] else []
+
+    # 获取所有节点状态
+    cursor.execute('SELECT node_id, ip, port, status FROM nodes')
+    nodes_map = {row[0]: {'ip': row[1], 'port': row[2], 'status': row[3]} for row in cursor.fetchall()}
 
     # 如果不保留文件，删除实际文件
-    if not keep_files and files:
-        for file_id, node_id, real_path in files:
-            cursor.execute('SELECT ip, port FROM nodes WHERE node_id = ?', (node_id,))
-            node = cursor.fetchone()
-            if node:
-                try:
-                    requests.post(
-                        f"http://{node[0]}:{node[1]}/api/internal/delete",
-                        json={'path': real_path},
-                        headers={'X-NAS-Secret': NAS_SHARED_SECRET},
-                        timeout=10
-                    )
-                except Exception as e:
-                    print(f"[跨节点池] 删除文件失败 {real_path}: {e}")
+    deleted_results = []
+    pending_nodes = []
 
-    # 删除文件记录
+    if not keep_files and disks:
+        for disk in disks:
+            node_id = disk.get('nodeId')
+            disk_path = disk.get('disk')
+            node_info = nodes_map.get(node_id)
+
+            if not node_info:
+                continue
+
+            if node_info['status'] != 'online':
+                # 节点离线，记录待处理任务
+                pending_nodes.append(node_id)
+                cursor.execute('''
+                    INSERT INTO pending_tasks (task_type, node_id, params)
+                    VALUES (?, ?, ?)
+                ''', ('delete_pool_files', node_id, json.dumps({
+                    'pool_id': pool_id,
+                    'pool_name': pool_name,
+                    'disk_path': disk_path,
+                    'target_dir': f"{disk_path}/cross_pool"
+                })))
+                continue
+
+            # 节点在线，立即删除
+            try:
+                resp = requests.post(
+                    f"http://{node_info['ip']}:{node_info['port']}/api/internal/delete-dir",
+                    json={'path': f"{disk_path}/cross_pool"},
+                    headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+                    timeout=60
+                )
+                deleted_results.append({
+                    'node_id': node_id,
+                    'success': resp.status_code == 200,
+                    'message': resp.json().get('message', '') if resp.status_code == 200 else resp.text
+                })
+            except Exception as e:
+                # 删除失败也记录待处理任务
+                cursor.execute('''
+                    INSERT INTO pending_tasks (task_type, node_id, params, last_error)
+                    VALUES (?, ?, ?, ?)
+                ''', ('delete_pool_files', node_id, json.dumps({
+                    'pool_id': pool_id,
+                    'pool_name': pool_name,
+                    'disk_path': disk_path,
+                    'target_dir': f"{disk_path}/cross_pool"
+                }), str(e)))
+                deleted_results.append({
+                    'node_id': node_id,
+                    'success': False,
+                    'message': str(e),
+                    'pending': True
+                })
+
+    # 删除文件索引
     cursor.execute('DELETE FROM cross_pool_files WHERE pool_id = ?', (pool_id,))
 
-    # 删除逻辑卷记录
+    # 删除逻辑卷
     cursor.execute('DELETE FROM cross_pool_volumes WHERE pool_id = ?', (pool_id,))
 
     # 标记池为已删除
-    cursor.execute('UPDATE cross_node_pools SET status = "deleted" WHERE id = ?', (pool_id,))
+    cursor.execute('UPDATE cross_node_pools SET status = "deleted", updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                   (pool_id,))
 
     conn.commit()
     conn.close()
 
-    msg = '删除成功（已保留实际文件）' if keep_files else '删除成功（已清理所有文件）'
-    return jsonify({'success': True, 'message': msg})
+    result = {'success': True, 'message': '池已删除'}
+    if pending_nodes:
+        result['pending_nodes'] = pending_nodes
+        result['message'] = f'池已删除，{len(pending_nodes)} 个离线节点的文件将在上线后清理'
 
+    return jsonify(result)
 
 # ========== 池状态/统计 ==========
 
@@ -619,9 +681,9 @@ def list_files(pool_id):
         cursor.execute('''
             SELECT id, filename, filepath, node_id, disk_path, file_size, created_at, created_by
             FROM cross_pool_files
-            WHERE pool_id = ? AND filepath LIKE ?
+            WHERE pool_id = ? AND (filepath LIKE ? OR filepath LIKE ?)
             ORDER BY created_at DESC
-        ''', (pool_id, f'{subpath}%'))
+        ''', (pool_id, f'{subpath}/%', f'{subpath}\\%'))
     else:
         cursor.execute('''
             SELECT id, filename, filepath, node_id, disk_path, file_size, created_at, created_by
@@ -979,3 +1041,355 @@ def download_file(pool_id):
         )
     except Exception as e:
         return jsonify({'error': f'下载失败: {str(e)}'}), 500
+
+
+@cross_pool_bp.route('/api/cross-pools/<int:pool_id>/rebuild-index', methods=['POST'])
+@login_required
+@admin_required
+def rebuild_pool_index(pool_id):
+    """重建跨节点池索引 - 扫描所有在线磁盘，同步文件索引"""
+    import os
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # 获取池信息
+    cursor.execute('SELECT id, name, disks FROM cross_node_pools WHERE id = ? AND status != "deleted"', (pool_id,))
+    pool = cursor.fetchone()
+    if not pool:
+        conn.close()
+        return jsonify({'error': '池不存在'}), 404
+
+    pool_name = pool[1]
+    disks = json.loads(pool[2]) if pool[2] else []
+
+    if not disks:
+        conn.close()
+        return jsonify({'error': '池没有配置磁盘'}), 400
+
+    # 获取该池的所有逻辑卷名称
+    cursor.execute('SELECT name FROM cross_pool_volumes WHERE pool_id = ?', (pool_id,))
+    valid_volumes = set(row[0] for row in cursor.fetchall())
+
+    # 获取所有在线节点
+    cursor.execute('SELECT node_id, ip, port, status FROM nodes')
+    nodes_map = {row[0]: {'ip': row[1], 'port': row[2], 'status': row[3]} for row in cursor.fetchall()}
+
+    # 获取现有索引
+    cursor.execute('SELECT id, filepath, node_id, disk_path, real_path FROM cross_pool_files WHERE pool_id = ?',
+                   (pool_id,))
+    existing_files = {row[2] + ':' + row[4]: {'id': row[0], 'filepath': row[1], 'node_id': row[2], 'disk_path': row[3],
+                                              'real_path': row[4]} for row in cursor.fetchall()}
+
+    added = 0
+    removed = 0
+    skipped = 0
+    errors = 0
+    scanned_files = set()
+    results = []
+
+    # 遍历每个磁盘
+    for disk in disks:
+        node_id = disk.get('nodeId')
+        disk_path = disk.get('disk')
+        node_info = nodes_map.get(node_id)
+
+        if not node_info or node_info['status'] != 'online':
+            results.append({'node': node_id, 'disk': disk_path, 'status': 'skipped', 'reason': '节点离线'})
+            continue
+
+        node_ip = node_info['ip']
+        node_port = node_info['port']
+
+        try:
+            resp = requests.get(
+                f"http://{node_ip}:{node_port}/api/internal/scan-dir",
+                params={'path': f"{disk_path}/cross_pool"},
+                headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+                timeout=60
+            )
+
+            if resp.status_code == 404:
+                results.append({'node': node_id, 'disk': disk_path, 'status': 'ok', 'files': 0, 'reason': '目录不存在'})
+                continue
+
+            if resp.status_code != 200:
+                errors += 1
+                results.append(
+                    {'node': node_id, 'disk': disk_path, 'status': 'error', 'reason': f'扫描失败: {resp.status_code}'})
+                continue
+
+            files_on_disk = resp.json().get('files', [])
+            disk_added = 0
+            disk_skipped = 0
+
+            for file_info in files_on_disk:
+                real_path = file_info.get('path')
+                filename = file_info.get('name')
+                file_size = file_info.get('size', 0)
+                is_dir = file_info.get('is_dir', False)
+
+                if is_dir:
+                    continue
+
+                # 从 real_path 提取 filepath
+                # 统一路径格式（处理 Windows 和 Linux 路径）
+                real_path_normalized = real_path.replace('\\', '/').replace('//', '/')
+                disk_path_normalized = disk_path.replace('\\', '/').replace('//', '/')
+
+                # 尝试多种前缀格式
+                cross_pool_prefix = f"{disk_path_normalized}/cross_pool/"
+                if real_path_normalized.startswith(cross_pool_prefix):
+                    filepath = real_path_normalized[len(cross_pool_prefix):]
+                elif '/cross_pool/' in real_path_normalized:
+                    # 备用方案：直接从 cross_pool/ 后截取
+                    filepath = real_path_normalized.split('/cross_pool/', 1)[1]
+                else:
+                    filepath = filename
+
+                # 检查是否属于有效的逻辑卷
+                parts = filepath.split('/')
+                volume_name = parts[0] if parts else ''
+
+                # 必须属于某个有效逻辑卷才能添加索引
+                if not volume_name or volume_name not in valid_volumes:
+                    # 跳过不属于任何现有逻辑卷的文件
+                    disk_skipped += 1
+                    skipped += 1
+                    continue
+
+                file_key = node_id + ':' + real_path
+                scanned_files.add(file_key)
+
+                if file_key not in existing_files:
+                    cursor.execute('''
+                        INSERT INTO cross_pool_files 
+                        (pool_id, filename, filepath, node_id, node_ip, node_port, disk_path, real_path, file_size, created_by)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (pool_id, filename, filepath, node_id, node_ip, node_port, disk_path, real_path, file_size,
+                          'system_rebuild'))
+                    added += 1
+                    disk_added += 1
+
+            results.append({
+                'node': node_id,
+                'disk': disk_path,
+                'status': 'ok',
+                'files': len(files_on_disk),
+                'added': disk_added,
+                'skipped': disk_skipped
+            })
+
+        except Exception as e:
+            errors += 1
+            results.append({'node': node_id, 'disk': disk_path, 'status': 'error', 'reason': str(e)})
+
+    # 清理失效索引
+    for file_key, file_info in existing_files.items():
+        node_id = file_info['node_id']
+        node_info = nodes_map.get(node_id)
+
+        if node_info and node_info['status'] == 'online':
+            if file_key not in scanned_files:
+                cursor.execute('DELETE FROM cross_pool_files WHERE id = ?', (file_info['id'],))
+                removed += 1
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'added': added,
+        'removed': removed,
+        'skipped': skipped,
+        'errors': errors,
+        'results': results
+    })
+
+@cross_pool_bp.route('/api/cross-pools/<int:pool_id>/clean-invalid', methods=['POST'])
+@login_required
+@admin_required
+def clean_invalid_index(pool_id):
+    """清理失效索引 - 删除指向离线节点/磁盘的索引记录"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # 获取池信息
+    cursor.execute('SELECT id, disks FROM cross_node_pools WHERE id = ? AND status != "deleted"', (pool_id,))
+    pool = cursor.fetchone()
+    if not pool:
+        conn.close()
+        return jsonify({'error': '池不存在'}), 404
+
+    disks = json.loads(pool[1]) if pool[1] else []
+
+    # 构建有效的 node_id:disk_path 组合
+    valid_disk_keys = set()
+    for disk in disks:
+        key = disk.get('nodeId') + ':' + disk.get('disk')
+        valid_disk_keys.add(key)
+
+    # 获取所有索引记录
+    cursor.execute('SELECT id, node_id, disk_path FROM cross_pool_files WHERE pool_id = ?', (pool_id,))
+    files = cursor.fetchall()
+
+    removed = 0
+    for file_id, node_id, disk_path in files:
+        key = node_id + ':' + disk_path
+        if key not in valid_disk_keys:
+            cursor.execute('DELETE FROM cross_pool_files WHERE id = ?', (file_id,))
+            removed += 1
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'removed': removed,
+        'message': f'已清理 {removed} 条失效索引'
+    })
+
+
+# ========== 待处理任务 ==========
+
+@cross_pool_bp.route('/api/pending-tasks', methods=['GET'])
+@login_required
+@admin_required
+def list_pending_tasks():
+    """获取待处理任务列表"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        SELECT id, task_type, node_id, params, created_at, status, retry_count, last_error
+        FROM pending_tasks
+        WHERE status = 'pending'
+        ORDER BY created_at ASC
+    ''')
+
+    tasks = []
+    for row in cursor.fetchall():
+        tasks.append({
+            'id': row[0],
+            'task_type': row[1],
+            'node_id': row[2],
+            'params': json.loads(row[3]) if row[3] else {},
+            'created_at': row[4],
+            'status': row[5],
+            'retry_count': row[6],
+            'last_error': row[7]
+        })
+
+    conn.close()
+    return jsonify(tasks)
+
+
+@cross_pool_bp.route('/api/pending-tasks/process', methods=['POST'])
+@login_required
+@admin_required
+def process_pending_tasks():
+    """处理待处理任务（通常在节点上线时调用）"""
+    node_id = request.json.get('node_id')  # 可选，指定只处理某个节点的任务
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # 获取待处理任务
+    if node_id:
+        cursor.execute('''
+            SELECT id, task_type, node_id, params FROM pending_tasks
+            WHERE status = 'pending' AND node_id = ?
+        ''', (node_id,))
+    else:
+        cursor.execute('''
+            SELECT id, task_type, node_id, params FROM pending_tasks
+            WHERE status = 'pending'
+        ''')
+
+    tasks = cursor.fetchall()
+
+    # 获取节点信息
+    cursor.execute('SELECT node_id, ip, port, status FROM nodes')
+    nodes_map = {row[0]: {'ip': row[1], 'port': row[2], 'status': row[3]} for row in cursor.fetchall()}
+
+    results = []
+
+    for task_id, task_type, task_node_id, params_json in tasks:
+        params = json.loads(params_json) if params_json else {}
+        node_info = nodes_map.get(task_node_id)
+
+        # 检查节点是否在线
+        if not node_info or node_info['status'] != 'online':
+            results.append({
+                'task_id': task_id,
+                'success': False,
+                'reason': '节点不在线'
+            })
+            continue
+
+        # 执行任务
+        success = False
+        error_msg = None
+
+        try:
+            if task_type == 'delete_pool_files':
+                target_dir = params.get('target_dir')
+                resp = requests.post(
+                    f"http://{node_info['ip']}:{node_info['port']}/api/internal/delete-dir",
+                    json={'path': target_dir},
+                    headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+                    timeout=60
+                )
+                success = resp.status_code == 200
+                if not success:
+                    error_msg = resp.text
+            else:
+                error_msg = f'未知任务类型: {task_type}'
+        except Exception as e:
+            error_msg = str(e)
+
+        # 更新任务状态
+        if success:
+            cursor.execute('''
+                UPDATE pending_tasks 
+                SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (task_id,))
+        else:
+            cursor.execute('''
+                UPDATE pending_tasks 
+                SET retry_count = retry_count + 1, last_error = ?
+                WHERE id = ?
+            ''', (error_msg, task_id))
+
+        results.append({
+            'task_id': task_id,
+            'task_type': task_type,
+            'node_id': task_node_id,
+            'success': success,
+            'error': error_msg
+        })
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'processed': len(results),
+        'results': results
+    })
+
+
+@cross_pool_bp.route('/api/pending-tasks/<int:task_id>', methods=['DELETE'])
+@login_required
+@admin_required
+def cancel_pending_task(task_id):
+    """取消/删除待处理任务"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('DELETE FROM pending_tasks WHERE id = ?', (task_id,))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({'success': True, 'message': '任务已取消'})

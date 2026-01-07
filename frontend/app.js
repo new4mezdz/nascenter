@@ -220,27 +220,47 @@ bgPresets: [
 },
 
 
-       // 自动刷新所有窗口数据
+
+// 自动刷新所有窗口数据
 refreshAllWindowsData() {
     this.windows.forEach(win => {
-        if (win.type === 'nodes' && !win.loading) {
-            this.loadNodesData(win);
-        }
-        if (win.type === 'permissions' && !win.loading) {
-            this.loadPermissionData(win);
-        }
-        if (win.type === 'space-allocation' && !win.loading) {
-            this.loadNodesForSpaceAllocation(win);
+        if (win.minimized || win.loading) return;
+
+        switch (win.type) {
+            case 'nodes':
+                this.loadNodesData(win);
+                break;
+            case 'permissions':
+                this.loadPermissionData(win);
+                break;
+            case 'space-allocation':
+                this.loadNodesForSpaceAllocation(win);
+                this.loadCrossPools(win);
+                break;
+            case 'encryption':
+                this.loadEncryptionNodes(win);
+                break;
+            case 'ec-config':
+                this.loadEcWindowData(win);
+                break;
+            case 'file-manager':
+                this.loadFmNodes(win);
+                if (win.selectedFmNode) {
+                    this.selectFmNode(win, win.selectedFmNode);
+                }
+                break;
+            case 'user-management':
+                this.loadUsers(win);
+                break;
         }
     });
 },
-
-        closeWindow(id) {
-            const index = this.windows.findIndex(w => w.id === id);
-            if (index !== -1) {
-                this.windows.splice(index, 1);
-            }
-        },
+       closeWindow(id) {
+    const index = this.windows.findIndex(w => w.id === id);
+    if (index !== -1) {
+        this.windows.splice(index, 1);
+    }
+},
 
         minimizeWindow(id) {
             const win = this.windows.find(w => w.id === id);
@@ -647,37 +667,349 @@ async loadEcStatus(window) {
     window.ecStatus = { cross_ec: null, single_ec_nodes: [] };
 
     try {
-        // 加载跨节点EC配置作为状态
+        // 先刷新节点列表，获取最新在线状态
+        try {
+            const nodesRes = await axios.get(`${this.apiBaseUrl}/api/nodes`);
+            window.allNodes = nodesRes.data || [];
+        } catch (e) {
+            console.warn('刷新节点列表失败:', e.message);
+        }
+
+        // 加载跨节点EC配置，并检测各节点真实状态
         if (window.crossEcConfig) {
+            const nodesWithStatus = [];
+            for (const nodeInfo of (window.crossEcConfig.nodes || [])) {
+    const node = (window.allNodes || []).find(n => n.id === (nodeInfo.node_id || nodeInfo.nodeId));
+                const isOnline = node && node.status === 'online';
+                nodesWithStatus.push({
+                    ...nodeInfo,
+                    online: isOnline
+                });
+            }
+            const onlineCount = nodesWithStatus.filter(n => n.online).length;
+            const totalCount = nodesWithStatus.length;
+            const minRequired = window.crossEcConfig.k;
+
             window.ecStatus.cross_ec = {
                 ...window.crossEcConfig,
-                health: 'healthy'
+                nodes: nodesWithStatus,
+                health: onlineCount >= minRequired ? 'healthy' : (onlineCount > 0 ? 'degraded' : 'offline'),
+                onlineNodes: onlineCount,
+                totalNodes: totalCount
             };
         }
 
         // 遍历节点获取单节点EC状态
         for (const node of (window.allNodes || [])) {
-            if (node.status !== 'online') continue;
+            const isOnline = node.status === 'online';
+            if (!isOnline) continue;
+
             try {
                 const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/ec_config`);
                 if (res.data && res.data.config && (res.data.config.scheme || res.data.config.k)) {
-    window.ecStatus.single_ec_nodes.push({
-        node_id: node.id,
-        node_name: node.name,
-        ip: node.ip,
-        config: res.data.config,
+                    window.ecStatus.single_ec_nodes.push({
+                        node_id: node.id,
+                        node_name: node.name,
+                        ip: node.ip,
+                        config: res.data.config,
                         health: 'healthy',
                         online: true
                     });
                 }
             } catch (e) {
-                // 节点无EC配置，跳过
+                console.warn(`节点 ${node.name} EC配置获取失败:`, e.message);
             }
         }
     } catch (e) {
         console.error('加载EC状态失败:', e);
     }
     window.ecStatusLoading = false;
+},
+
+startEcStatusPolling(window) {
+    this.stopEcStatusPolling(window);
+    this.loadEcStatus(window, true);  // 首次加载显示loading
+    window.ecStatusTimer = setInterval(() => {
+        if (window.ecTab === 'status') {
+            this.loadEcStatus(window, false);  // 轮询时不显示loading
+        }
+    }, 5000);
+},
+stopEcStatusPolling(window) {
+    if (window.ecStatusTimer) {
+        clearInterval(window.ecStatusTimer);
+        window.ecStatusTimer = null;
+    }
+},
+
+
+        // 获取节点在线状态
+getNodeOnlineStatus(window, nodeId) {
+    const node = (window.allNodes || []).find(n => n.id === nodeId);
+    return node && node.status === 'online';
+},
+
+// 导出所有跨节点EC文件
+async exportAllCrossEcFiles(window) {
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/ec_files?type=cross`);
+        const files = res.data.files || [];
+
+        if (files.length === 0) {
+            alert('EC池中没有文件');
+            return;
+        }
+
+        if (!confirm(`确定导出全部 ${files.length} 个文件？`)) return;
+
+        window.exportProgress = { show: true, current: 0, total: files.length, status: '准备导出...' };
+
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            window.exportProgress.current = i + 1;
+            window.exportProgress.status = `正在导出: ${file.filename}`;
+
+            try {
+                const downloadRes = await axios.get(`${this.apiBaseUrl}/api/ec_download/cross/${encodeURIComponent(file.filename)}`, {
+                    responseType: 'blob'
+                });
+
+                // 触发下载
+                const url = URL.createObjectURL(downloadRes.data);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = file.filename;
+                a.click();
+                URL.revokeObjectURL(url);
+
+                // 间隔一下避免浏览器卡顿
+                await new Promise(r => setTimeout(r, 500));
+            } catch (e) {
+                console.error(`导出 ${file.filename} 失败:`, e);
+            }
+        }
+
+        window.exportProgress.show = false;
+        alert('导出完成！');
+    } catch (e) {
+        alert('导出失败: ' + (e.response?.data?.error || e.message));
+    }
+},
+
+// 打开添加磁盘对话框
+openAddDiskToCrossEc(window) {
+    window.showAddCrossEcDiskDialog = true;
+    window.addCrossEcDiskForm = {
+        selectedNode: null,
+        selectedDisks: []
+    };
+    window.addCrossEcNodeDisks = [];
+},
+
+// 加载节点可用磁盘（添加磁盘用）
+async loadNodeDisksForAdd(window) {
+    if (!window.addCrossEcDiskForm.selectedNode) return;
+
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${window.addCrossEcDiskForm.selectedNode}/disks`);
+        const allDisks = res.data.disks || [];
+
+        // 过滤掉已在EC池中的磁盘
+        const nodeInfo = (window.crossEcConfig.nodes || []).find(n =>
+            (n.node_id || n.nodeId) === window.addCrossEcDiskForm.selectedNode
+        );
+        const usedDisks = nodeInfo?.disks || [];
+
+        window.addCrossEcNodeDisks = allDisks.filter(d => !usedDisks.includes(d.mount || d.drive));
+    } catch (e) {
+        window.addCrossEcNodeDisks = [];
+    }
+},
+
+// 确认添加磁盘到跨节点EC
+async confirmAddDiskToCrossEc(window) {
+    if (!window.addCrossEcDiskForm.selectedNode || window.addCrossEcDiskForm.selectedDisks.length === 0) {
+        alert('请选择节点和磁盘');
+        return;
+    }
+
+    try {
+        const res = await axios.post(`${this.apiBaseUrl}/api/cross_ec_config/add_disk`, {
+            node_id: window.addCrossEcDiskForm.selectedNode,
+            disks: window.addCrossEcDiskForm.selectedDisks
+        });
+
+        if (res.data.success) {
+            alert('磁盘添加成功！');
+            window.showAddCrossEcDiskDialog = false;
+            await this.loadEcWindowData(window);
+        } else {
+            alert(res.data.error || '添加失败');
+        }
+    } catch (e) {
+        alert('添加失败: ' + (e.response?.data?.error || e.message));
+    }
+},
+async openExportCrossEcDialog(window) {
+    window.showExportCrossEcDialog = true;
+    window.exportForm = {
+        selectedNode: null,
+        selectedDisk: null,
+        exportPath: 'ec_export'
+    };
+    window.exportNodeDisks = [];
+    window.exportProgress = { show: false };
+
+    // 获取文件数量
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/ec_files?type=cross`);
+        window.exportFileCount = (res.data.files || []).length;
+        window.exportFiles = res.data.files || [];
+    } catch (e) {
+        window.exportFileCount = 0;
+        window.exportFiles = [];
+    }
+},
+
+        async loadNodeDisksForExport(window) {
+    if (!window.exportForm.selectedNode) {
+        window.exportNodeDisks = [];
+        return;
+    }
+
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${window.exportForm.selectedNode}/disks`);
+        window.exportNodeDisks = res.data.disks || [];
+    } catch (e) {
+        window.exportNodeDisks = [];
+    }
+},
+
+        // 执行导出
+async executeExportCrossEcFiles(window) {
+    if (!window.exportForm.selectedNode || !window.exportForm.selectedDisk) {
+        alert('请选择目标节点和磁盘');
+        return;
+    }
+
+    const files = window.exportFiles || [];
+    if (files.length === 0) {
+        alert('EC池中没有文件');
+        return;
+    }
+
+    if (!confirm(`确定导出全部 ${files.length} 个文件到 ${window.exportForm.selectedDisk}/${window.exportForm.exportPath || 'ec_export'}/ ?`)) return;
+
+    window.exportProgress = { show: true, current: 0, total: files.length, status: '准备导出...' };
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        window.exportProgress.current = i + 1;
+        window.exportProgress.status = `正在导出: ${file.filename}`;
+
+        try {
+            await axios.post(`${this.apiBaseUrl}/api/cross_ec_export`, {
+                filename: file.filename,
+                target_node: window.exportForm.selectedNode,
+                target_disk: window.exportForm.selectedDisk,
+                target_path: window.exportForm.exportPath || 'ec_export'
+            });
+            successCount++;
+        } catch (e) {
+            console.error(`导出 ${file.filename} 失败:`, e);
+            failCount++;
+        }
+    }
+
+    window.exportProgress.show = false;
+    window.showExportCrossEcDialog = false;
+
+    if (failCount === 0) {
+        alert(`导出完成！共 ${successCount} 个文件`);
+    } else {
+        alert(`导出完成！成功 ${successCount} 个，失败 ${failCount} 个`);
+    }
+},
+// 打开重建分片对话框
+openRebuildShards(window) {
+    window.showRebuildShardsDialog = true;
+    window.rebuildForm = {
+        mode: 'auto',  // auto: 自动检测丢失分片, manual: 手动选择文件
+        selectedFiles: [],
+        targetDisk: null
+    };
+    this.loadEcFilesForRebuild(window);
+},
+
+// 加载EC文件列表用于重建
+async loadEcFilesForRebuild(window) {
+    try {
+        const res = await axios.get(`${this.apiBaseUrl}/api/ec_files?type=cross`);
+        window.rebuildFiles = res.data.files || [];
+    } catch (e) {
+        window.rebuildFiles = [];
+    }
+},
+
+// 检测丢失的分片
+async detectLostShards(window) {
+    try {
+        window.detectingShards = true;
+        const res = await axios.get(`${this.apiBaseUrl}/api/cross_ec_config/check_shards`);
+        window.lostShards = res.data.lost_shards || [];
+        window.detectingShards = false;
+
+        if (window.lostShards.length === 0) {
+            alert('所有分片完整，无需重建');
+        }
+    } catch (e) {
+        window.detectingShards = false;
+        alert('检测失败: ' + (e.response?.data?.error || e.message));
+    }
+},
+
+// 执行分片重建
+async executeRebuildShards(window) {
+    const filesToRebuild = window.rebuildForm.mode === 'auto'
+        ? window.lostShards.map(s => s.filename)
+        : window.rebuildForm.selectedFiles;
+
+    if (filesToRebuild.length === 0) {
+        alert('没有需要重建的文件');
+        return;
+    }
+
+    if (!confirm(`确定重建 ${filesToRebuild.length} 个文件的分片？`)) return;
+
+    try {
+        window.rebuildProgress = { show: true, current: 0, total: filesToRebuild.length, status: '开始重建...' };
+
+        for (let i = 0; i < filesToRebuild.length; i++) {
+            const filename = filesToRebuild[i];
+            window.rebuildProgress.current = i + 1;
+            window.rebuildProgress.status = `正在重建: ${filename}`;
+
+            try {
+                await axios.post(`${this.apiBaseUrl}/api/cross_ec_config/rebuild_shard`, {
+                    filename,
+                    target_disk: window.rebuildForm.targetDisk
+                });
+            } catch (e) {
+                console.error(`重建 ${filename} 失败:`, e);
+            }
+        }
+
+        window.rebuildProgress.show = false;
+        window.showRebuildShardsDialog = false;
+        alert('重建完成！');
+        await this.loadEcWindowData(window);
+    } catch (e) {
+        window.rebuildProgress = { show: false };
+        alert('重建失败: ' + (e.response?.data?.error || e.message));
+    }
 },
 
 async loadEcFiles(win) {
@@ -976,7 +1308,7 @@ openSpaceAllocation() {
         poolLoading: false,
         // 逻辑卷表单
         showVolumeDialog: false,
-        volumeForm: { name: '', display_name: '', icon: '📁', strategy: 'largest_free' },
+        volumeForm: { name: '', display_name: '', icon: '📁', strategy: 'largest_free', quota: 0, quotaUnit: 'GB' },
         volumeEditMode: false,
         // 添加磁盘
         showAddDiskDialog: false,
@@ -987,9 +1319,11 @@ openSpaceAllocation() {
         selectedCrossPool: null,
 crossPoolVolumes: [],           // 新增
 showCrossVolumeDialog: false,   // 新增
-crossVolumeForm: { name: '', display_name: '', icon: '📁', strategy: 'largest_free' },  // 新增
+crossVolumeForm: { name: '', display_name: '', icon: '📁', strategy: 'largest_free', quota: 0, quotaUnit: 'GB' },
 crossVolumeEditMode: false,     // 新增
         showCreatePoolDialog: false,
+        rebuildingIndex: false,  // 新增
+rebuildProgress: null,   // 新增
         poolForm: { name: '', display_name: '', strategy: 'largest_free', disks: [] },
         poolEditMode: false,
         // 选择磁盘
@@ -1103,18 +1437,142 @@ async deleteCrossPool(win, pool) {
 },
 
 
-// 选择跨节点池查看详情
 async selectCrossPool(win, pool) {
     win.selectedCrossPool = pool;
-    // 可以在这里加载池的统计信息
+
+    // 加载池的统计信息
     try {
         const res = await axios.get(`${this.apiBaseUrl}/api/cross-pools/${pool.id}/stats`);
         win.selectedCrossPool.stats = res.data;
     } catch (e) {
         console.error('加载池统计失败', e);
     }
+
+    // 确保节点列表已加载
+    if (!win.allNodes || win.allNodes.length === 0) {
+        try {
+            const nodesRes = await axios.get(`${this.apiBaseUrl}/api/nodes`);
+            win.allNodes = nodesRes.data || [];
+        } catch (e) {
+            console.error('加载节点列表失败', e);
+        }
+    }
+
+    // 刷新成员磁盘的实时容量信息和状态
+    if (win.selectedCrossPool.disks && win.selectedCrossPool.disks.length > 0) {
+        const nodeIds = [...new Set(win.selectedCrossPool.disks.map(d => d.nodeId))];
+        const diskInfoCache = {};
+        const nodeStatusCache = {};
+
+        for (const nodeId of nodeIds) {
+            // 先检查节点是否在线
+            const node = (win.allNodes || []).find(n => n.id === nodeId);
+            nodeStatusCache[nodeId] = node?.status || 'offline';
+
+            if (node?.status === 'online') {
+                try {
+                    const diskRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${nodeId}/disks`);
+                    const disks = diskRes.data?.disks || diskRes.data || [];
+                    diskInfoCache[nodeId] = disks;
+                } catch (e) {
+                    console.error(`加载节点 ${nodeId} 磁盘信息失败`, e);
+                    nodeStatusCache[nodeId] = 'error';
+                }
+            }
+        }
+
+        // 更新每个磁盘的容量信息和状态
+        for (const disk of win.selectedCrossPool.disks) {
+            disk.nodeStatus = nodeStatusCache[disk.nodeId] || 'offline';
+
+            if (disk.nodeStatus === 'online') {
+                const nodeDisks = diskInfoCache[disk.nodeId] || [];
+                // 先按盘符找磁盘
+                const latestDisk = nodeDisks.find(d => d.mount === disk.disk);
+
+                if (latestDisk) {
+                    // 如果有卷序列号，验证是否匹配
+                    const savedSerial = disk.volumeSerial;
+                    const currentSerial = latestDisk.volume_serial || latestDisk.serial || '';
+
+                    if (savedSerial && currentSerial && savedSerial !== currentSerial) {
+                        // 盘符相同但序列号不同，说明是不同的磁盘
+                        disk.diskStatus = 'replaced';
+                        disk.warning = '磁盘已被替换（序列号不匹配）';
+                    } else {
+                        disk.free = latestDisk.free_gb || latestDisk.free;
+                        disk.total = latestDisk.total_gb || latestDisk.total;
+                        disk.diskStatus = 'online';
+                    }
+                } else {
+                    disk.diskStatus = 'missing';  // 节点在线但磁盘不存在
+                }
+            } else {
+                disk.diskStatus = 'offline';
+            }
+        }
+
+        // 计算池健康状态
+        const totalDisks = win.selectedCrossPool.disks.length;
+        const onlineDisks = win.selectedCrossPool.disks.filter(d => d.diskStatus === 'online').length;
+        const replacedDisks = win.selectedCrossPool.disks.filter(d => d.diskStatus === 'replaced').length;
+        win.selectedCrossPool.health = {
+            total: totalDisks,
+            online: onlineDisks,
+            offline: totalDisks - onlineDisks - replacedDisks,
+            replaced: replacedDisks,
+            status: onlineDisks === totalDisks ? 'healthy' :
+                    (replacedDisks > 0 ? 'error' : (onlineDisks > 0 ? 'degraded' : 'offline'))
+        };
+    }
+
     // 加载逻辑卷
     this.loadCrossPoolVolumes(win);
+},
+
+
+// 重建跨节点池索引
+async rebuildCrossPoolIndex(win) {
+    if (!win.selectedCrossPool) return;
+
+    const pool = win.selectedCrossPool;
+    const onlineDisks = (pool.disks || []).filter(d => d.diskStatus === 'online');
+
+    if (onlineDisks.length === 0) {
+        alert('没有在线的磁盘，无法重建索引');
+        return;
+    }
+
+    if (!confirm(`确定要重建存储池 "${pool.display_name || pool.name}" 的索引吗？\n\n这将扫描所有在线磁盘（${onlineDisks.length}个）上的文件并更新数据库索引。\n\n注意：此操作可能需要一些时间，取决于文件数量。`)) {
+        return;
+    }
+
+    win.rebuildingIndex = true;
+    win.rebuildProgress = { current: 0, total: onlineDisks.length, status: '正在扫描...', results: [] };
+
+    try {
+        const res = await axios.post(`${this.apiBaseUrl}/api/cross-pools/${pool.id}/rebuild-index`);
+
+        if (res.data.success) {
+            win.rebuildProgress.status = '完成';
+            win.rebuildProgress.results = res.data.results || [];
+
+            const added = res.data.added || 0;
+            const removed = res.data.removed || 0;
+            const errors = res.data.errors || 0;
+
+            alert(`索引重建完成！\n\n新增: ${added} 个文件\n移除: ${removed} 条失效记录\n错误: ${errors} 个`);
+
+            // 刷新数据
+            await this.selectCrossPool(win, pool);
+        } else {
+            alert('重建索引失败: ' + (res.data.error || '未知错误'));
+        }
+    } catch (e) {
+        alert('重建索引失败: ' + (e.response?.data?.error || e.message));
+    } finally {
+        win.rebuildingIndex = false;
+    }
 },
 
         // 加载跨节点池逻辑卷
@@ -1131,19 +1589,33 @@ async loadCrossPoolVolumes(win) {
 
 // 打开创建跨节点逻辑卷对话框
 openCreateCrossVolumeDialog(win) {
-    win.crossVolumeForm = { name: '', display_name: '', icon: '📁', strategy: 'largest_free' };
+    win.crossVolumeForm = { name: '', display_name: '', icon: '📁', strategy: 'largest_free', quota: 0, quotaUnit: 'GB' };
     win.crossVolumeEditMode = false;
     win.showCrossVolumeDialog = true;
 },
 
 // 打开编辑跨节点逻辑卷对话框
 openEditCrossVolumeDialog(win, vol) {
-    win.crossVolumeForm = {
-        name: vol.name,
-        display_name: vol.display_name || '',
-        icon: vol.icon || '📁',
-        strategy: vol.strategy || 'largest_free'
-    };
+    // 将后端返回的字节数转换为 GB 或 TB 显示
+let quotaValue = 0;
+let quotaUnit = 'GB';
+if (vol.quota && vol.quota > 0) {
+    if (vol.quota >= 1024 * 1024 * 1024 * 1024) {
+        quotaValue = vol.quota / (1024 * 1024 * 1024 * 1024);
+        quotaUnit = 'TB';
+    } else {
+        quotaValue = vol.quota / (1024 * 1024 * 1024);
+        quotaUnit = 'GB';
+    }
+}
+win.crossVolumeForm = {
+    name: vol.name,
+    display_name: vol.display_name || '',
+    icon: vol.icon || '📁',
+    strategy: vol.strategy || 'largest_free',
+    quota: quotaValue,
+    quotaUnit: quotaUnit
+};
     win.crossVolumeEditMode = true;
     win.showCrossVolumeDialog = true;
 },
@@ -1152,15 +1624,28 @@ openEditCrossVolumeDialog(win, vol) {
 async saveCrossVolume(win) {
     const form = win.crossVolumeForm;
     if (!form.name) return alert('请输入逻辑卷名称');
+
+    // 计算配额字节数
+    const quotaBytes = form.quota > 0
+        ? form.quota * (form.quotaUnit === 'TB' ? 1024 * 1024 * 1024 * 1024 : 1024 * 1024 * 1024)
+        : 0;
+
     try {
         if (win.crossVolumeEditMode) {
             await axios.patch(`${this.apiBaseUrl}/api/cross-pools/${win.selectedCrossPool.id}/volumes/${form.name}`, {
                 display_name: form.display_name,
                 icon: form.icon,
-                strategy: form.strategy
+                strategy: form.strategy,
+                quota: quotaBytes
             });
         } else {
-            await axios.post(`${this.apiBaseUrl}/api/cross-pools/${win.selectedCrossPool.id}/volumes`, form);
+            await axios.post(`${this.apiBaseUrl}/api/cross-pools/${win.selectedCrossPool.id}/volumes`, {
+                name: form.name,
+                display_name: form.display_name,
+                icon: form.icon,
+                strategy: form.strategy,
+                quota: quotaBytes
+            });
         }
         alert(win.crossVolumeEditMode ? '更新成功' : '创建成功');
         win.showCrossVolumeDialog = false;
@@ -1199,7 +1684,6 @@ async selectNodeForDiskSelection(win, node) {
 
 // 切换磁盘选择
 toggleDiskSelection(win, node, disk) {
-    const diskKey = `${node.id}:${disk.mount}`;
     const existing = win.poolForm.disks.findIndex(d => d.nodeId === node.id && d.disk === disk.mount);
 
     if (existing >= 0) {
@@ -1211,8 +1695,9 @@ toggleDiskSelection(win, node, disk) {
             nodeIp: node.ip,
             nodePort: node.port,
             disk: disk.mount,
-            total: disk.total_gb,
-            free: disk.free_gb
+            volumeSerial: disk.volume_serial || disk.serial || '',  // 保存卷序列号
+            total: disk.total_gb || disk.total,
+            free: disk.free_gb || disk.free
         });
     }
 },
@@ -1341,19 +1826,33 @@ async rebalancePool(win, dryRun = true) {
 
 // 打开创建逻辑卷对话框
 openCreateVolumeDialog(win) {
-    win.volumeForm = { name: '', display_name: '', icon: '📁', strategy: 'largest_free' };
+    win.volumeForm = { name: '', display_name: '', icon: '📁', strategy: 'largest_free', quota: 0, quotaUnit: 'GB' };
     win.volumeEditMode = false;
     win.showVolumeDialog = true;
 },
 
 // 打开编辑逻辑卷对话框
 openEditVolumeDialog(win, vol) {
-    win.volumeForm = {
-        name: vol.name,
-        display_name: vol.display_name,
-        icon: vol.icon || '📁',
-        strategy: vol.strategy || 'largest_free'
-    };
+   // 将后端返回的字节数转换为 GB 或 TB 显示
+let quotaValue = 0;
+let quotaUnit = 'GB';
+if (vol.quota && vol.quota > 0) {
+    if (vol.quota >= 1024 * 1024 * 1024 * 1024) {
+        quotaValue = vol.quota / (1024 * 1024 * 1024 * 1024);
+        quotaUnit = 'TB';
+    } else {
+        quotaValue = vol.quota / (1024 * 1024 * 1024);
+        quotaUnit = 'GB';
+    }
+}
+win.volumeForm = {
+    name: vol.name,
+    display_name: vol.display_name,
+    icon: vol.icon || '📁',
+    strategy: vol.strategy || 'largest_free',
+    quota: quotaValue,
+    quotaUnit: quotaUnit
+};
     win.volumeEditMode = true;
     win.showVolumeDialog = true;
 },
@@ -1365,15 +1864,28 @@ async saveVolume(win) {
         alert('请填写卷名和显示名称');
         return;
     }
+
+    // 计算配额字节数
+    const quotaBytes = form.quota > 0
+        ? form.quota * (form.quotaUnit === 'TB' ? 1024 * 1024 * 1024 * 1024 : 1024 * 1024 * 1024)
+        : 0;
+
     try {
         if (win.volumeEditMode) {
             await axios.patch(`${this.apiBaseUrl}/api/nodes/${win.selectedPoolNode.id}/proxy/pool/volume/${form.name}`, {
                 display_name: form.display_name,
                 icon: form.icon,
-                strategy: form.strategy
+                strategy: form.strategy,
+                quota: quotaBytes
             });
         } else {
-            await axios.post(`${this.apiBaseUrl}/api/nodes/${win.selectedPoolNode.id}/proxy/pool/volume/create`, form);
+            await axios.post(`${this.apiBaseUrl}/api/nodes/${win.selectedPoolNode.id}/proxy/pool/volume/create`, {
+                name: form.name,
+                display_name: form.display_name,
+                icon: form.icon,
+                strategy: form.strategy,
+                quota: quotaBytes
+            });
         }
         alert(win.volumeEditMode ? '更新成功' : '创建成功');
         win.showVolumeDialog = false;
@@ -1662,7 +2174,7 @@ async loadEcWindowData(win) {
     }
     // 先加载跨节点EC配置
     await this.loadCrossEcConfig(win);
-    // 再加载EC状态（依赖crossEcConfig）
+    // 启动EC状态轮询（包含首次加载）
     await this.loadEcStatus(win);
 },
 
@@ -2157,6 +2669,7 @@ async selectFmNode(win, node) {
     win.fmDisksLoading = true;
     win.fmEcVolume = null;
     win.fmPoolVolumes = [];
+    win.fmHasPool = false;
 
     try {
         // 并行请求所有数据
@@ -2176,13 +2689,20 @@ async selectFmNode(win, node) {
         let ecDisks = [];
         if (ecRes.status === 'fulfilled' && ecRes.value.data?.config?.disks) {
             win.fmEcVolume = ecRes.value.data.config;
-            ecDisks = ecRes.value.data.config.disks.map(d => d.toUpperCase().replace(/\\/g, '/'));
+            ecDisks = ecRes.value.data.config.disks.map(d => {
+                const path = typeof d === 'string' ? d : (d.path || d.mount || '');
+                return path.toUpperCase().replace(/\\/g, '/').replace(/\/+$/, '');
+            }).filter(Boolean);
         }
 
         // 处理存储池状态
         let poolDisks = [];
         if (poolRes.status === 'fulfilled' && poolRes.value.data?.disks) {
-            poolDisks = poolRes.value.data.disks.map(d => d.toUpperCase().replace(/\\/g, '/'));
+            win.fmHasPool = poolRes.value.data.disks.length > 0;
+            poolDisks = poolRes.value.data.disks.map(d => {
+                const path = typeof d === 'string' ? d : (d.disk || d.path || d.mount || '');
+                return path.toUpperCase().replace(/\\/g, '/').replace(/\/+$/, '');
+            }).filter(Boolean);
         }
 
         // 处理逻辑卷列表
@@ -2193,8 +2713,8 @@ async selectFmNode(win, node) {
         // 过滤磁盘
         win.fmDisks = disksArray.filter(d => {
             if (!d.mount) return false;
-            const mount = d.mount.toUpperCase().replace(/\\/g, '/');
-            if (['C:/', '/'].includes(mount)) return false;
+            const mount = d.mount.toUpperCase().replace(/\\/g, '/').replace(/\/+$/, '');
+            if (['C:', 'C:/', '/'].includes(mount)) return false;
             if (ecDisks.includes(mount)) return false;
             if (poolDisks.includes(mount)) return false;
             return true;
@@ -2328,10 +2848,16 @@ getFileIcon(filename) {
 
 formatDate(timestamp) {
     if (!timestamp) return '';
-    const d = new Date(timestamp * 1000);
+    // 兼容 Unix 时间戳和日期字符串
+    let d;
+    if (typeof timestamp === 'number') {
+        d = new Date(timestamp * 1000);
+    } else {
+        d = new Date(timestamp);
+    }
+    if (isNaN(d.getTime())) return '';
     return d.toLocaleDateString() + ' ' + d.toLocaleTimeString().slice(0, 5);
 },
-
 async handleFmUpload(event, win) {
     const files = event.target.files;
     if (!files.length) return;
