@@ -1718,7 +1718,7 @@
           <div class="loading"></div>
         </div>
 
-       <template v-else-if="window.selectedFmDisk || window.selectedVolumeType === 'cross-ec' || window.selectedVolumeType === 'pool' || window.selectedVolumeType === 'cross-pool'">
+    <template v-else-if="window.selectedFmDisk || window.selectedVolumeType === 'single-ec' || window.selectedVolumeType === 'cross-ec' || window.selectedVolumeType === 'pool' || window.selectedVolumeType === 'cross-pool'">
           <!-- 返回上级 -->
           <div v-if="window.currentPath"
                @click="goUpFolder(window)"
@@ -2469,11 +2469,7 @@
       class="px-4 py-2 -mb-px">
       💾 单节点EC
     </button>
-    <button @click="window.ecTab = 'status'"
-      :class="window.ecTab === 'status' ? 'border-b-2 border-green-500 text-green-600 font-semibold' : 'text-gray-500 hover:text-gray-700'"
-      class="px-4 py-2 -mb-px">
-      📊 状态监控
-    </button>
+
     <button @click="window.ecTab = 'upload'"
       :class="window.ecTab === 'upload' ? 'border-b-2 border-green-500 text-green-600 font-semibold' : 'text-gray-500 hover:text-gray-700'"
       class="px-4 py-2 -mb-px">
@@ -2583,19 +2579,21 @@
                   {{ getNodeOnlineStatus(window, nodeInfo.node_id || nodeInfo.nodeId) ? '在线' : '离线' }}
                 </span>
               </div>
-              <div class="flex flex-wrap gap-2">
-  <span v-for="disk in nodeInfo.disks" :key="disk"
+            <div class="flex flex-wrap gap-2">
+  <span v-for="disk in nodeInfo.disks" :key="typeof disk === 'string' ? disk : disk.mount"
         class="px-2 py-1 rounded text-sm font-mono"
         :class="{
           'bg-green-100 text-green-700': getDiskStatus(window, nodeInfo.node_id || nodeInfo.nodeId, disk) === 'online',
           'bg-red-100 text-red-700': getDiskStatus(window, nodeInfo.node_id || nodeInfo.nodeId, disk) === 'offline',
           'bg-yellow-100 text-yellow-700': getDiskStatus(window, nodeInfo.node_id || nodeInfo.nodeId, disk) === 'missing',
+          'bg-orange-100 text-orange-700': getDiskStatus(window, nodeInfo.node_id || nodeInfo.nodeId, disk) === 'replaced',
           'bg-gray-100 text-gray-700': getDiskStatus(window, nodeInfo.node_id || nodeInfo.nodeId, disk) === 'unknown'
         }">
     <span v-if="getDiskStatus(window, nodeInfo.node_id || nodeInfo.nodeId, disk) === 'online'">💾</span>
     <span v-else-if="getDiskStatus(window, nodeInfo.node_id || nodeInfo.nodeId, disk) === 'missing'">⚠️</span>
+    <span v-else-if="getDiskStatus(window, nodeInfo.node_id || nodeInfo.nodeId, disk) === 'replaced'">🔄</span>
     <span v-else>❌</span>
-    {{ disk }}
+    {{ typeof disk === 'string' ? disk : disk.mount }}
   </span>
 </div>
             </div>
@@ -2812,9 +2810,14 @@
               </h4>
               <p class="text-sm text-gray-600 mt-1">节点内磁盘数据保护</p>
             </div>
-            <button @click="deleteSingleEcConfig(window)" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm">
-              删除配置
-            </button>
+           <div class="flex gap-2">
+  <button @click="openExportSingleEcDialog(window)" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-sm">
+    📤 导出所有文件
+  </button>
+  <button @click="deleteSingleEcConfig(window)" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm">
+    🗑️ 删除配置
+  </button>
+</div>
           </div>
 
           <div class="grid grid-cols-4 gap-4 mb-6">
@@ -2838,6 +2841,45 @@
             </div>
           </div>
 
+
+
+
+
+
+          <!-- 健康检查区域 -->
+<div class="border-t pt-4 mb-4">
+  <div class="flex justify-between items-center mb-3">
+    <h5 class="font-semibold">🏥 健康检查</h5>
+    <button @click="performSingleEcHealthCheck(window)"
+            :disabled="window.singleEcHealthChecking"
+            class="px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm disabled:opacity-50">
+      {{ window.singleEcHealthChecking ? '检查中...' : '🔍 执行检查' }}
+    </button>
+  </div>
+  <div v-if="window.singleEcHealthReport" class="grid grid-cols-3 gap-3 mb-3">
+    <div class="bg-green-50 p-3 rounded-lg text-center">
+      <div class="text-xs text-green-600">健康文件</div>
+      <div class="text-2xl font-bold text-green-700">{{ window.singleEcHealthReport.healthy || 0 }}</div>
+    </div>
+    <div class="bg-yellow-50 p-3 rounded-lg text-center">
+      <div class="text-xs text-yellow-600">风险文件</div>
+      <div class="text-2xl font-bold text-yellow-700">{{ window.singleEcHealthReport.at_risk || 0 }}</div>
+    </div>
+    <div class="bg-red-50 p-3 rounded-lg text-center">
+      <div class="text-xs text-red-600">损坏文件</div>
+      <div class="text-2xl font-bold text-red-700">{{ window.singleEcHealthReport.corrupted || 0 }}</div>
+    </div>
+  </div>
+  <div v-if="window.singleEcHealthReport && (window.singleEcHealthReport.at_risk > 0 || window.singleEcHealthReport.corrupted > 0)" class="flex gap-2">
+    <button @click="rebuildSingleEcShards(window)"
+        :disabled="window.singleEcRebuilding"
+        class="px-3 py-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 text-sm disabled:opacity-50">
+  {{ window.singleEcRebuilding ? '重建中...' : '🔧 重建分片' }}
+</button>
+  </div>
+</div>
+
+<!-- 磁盘列表 -->
           <!-- 磁盘列表 -->
           <div class="border-t pt-4">
             <h5 class="font-semibold mb-3">已配置磁盘 ({{ window.singleEcConfig.disks?.length || 0 }}个)</h5>
@@ -2917,123 +2959,7 @@
     </div>
 
 
-    <!-- ========== 状态监控 ========== -->
-<div v-else-if="window.ecTab === 'status'">
-  <div class="flex justify-between items-center mb-4">
-    <h4 class="font-bold text-lg">EC状态总览</h4>
-    <button @click="loadEcStatus(window)" class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm">
-      🔄 刷新状态
-    </button>
-  </div>
 
-  <div v-if="window.ecStatusLoading" class="text-center py-12">
-    <div class="loading"></div>
-    <p class="text-gray-500 mt-2">加载中...</p>
-  </div>
-
-  <div v-else>
-    <!-- 跨节点EC状态 -->
-    <div class="bg-white rounded-lg shadow border p-6 mb-6">
-      <h5 class="font-semibold text-lg mb-4 flex items-center gap-2">
-        <span class="text-2xl">🌐</span> 跨节点EC状态
-      </h5>
-
-      <div v-if="window.ecStatus?.cross_ec" class="space-y-4">
-        <div class="grid grid-cols-5 gap-4">
-          <div class="bg-green-50 p-4 rounded-lg text-center">
-            <div class="text-sm text-gray-600 mb-1">状态</div>
-            <div class="text-xl font-bold text-green-600 flex items-center justify-center gap-1">
-              <span class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
-              运行中
-            </div>
-          </div>
-          <div class="bg-blue-50 p-4 rounded-lg text-center">
-            <div class="text-sm text-gray-600 mb-1">数据块 (K)</div>
-            <div class="text-2xl font-bold text-blue-600">{{ window.ecStatus.cross_ec.k }}</div>
-          </div>
-          <div class="bg-purple-50 p-4 rounded-lg text-center">
-            <div class="text-sm text-gray-600 mb-1">校验块 (M)</div>
-            <div class="text-2xl font-bold text-purple-600">{{ window.ecStatus.cross_ec.m }}</div>
-          </div>
-          <div class="bg-orange-50 p-4 rounded-lg text-center">
-            <div class="text-sm text-gray-600 mb-1">参与节点</div>
-            <div class="text-2xl font-bold text-orange-600">{{ window.ecStatus.cross_ec.nodes?.length || 0 }}</div>
-          </div>
-          <div class="bg-teal-50 p-4 rounded-lg text-center">
-            <div class="text-sm text-gray-600 mb-1">总磁盘数</div>
-            <div class="text-2xl font-bold text-teal-600">{{ window.ecStatus.cross_ec.total_disks }}</div>
-          </div>
-        </div>
-
-        <!-- 节点健康状态 -->
-        <div class="border-t pt-4">
-          <h6 class="font-semibold mb-3">节点健康状态</h6>
-          <div class="grid grid-cols-2 gap-3">
-            <div v-for="nodeInfo in window.ecStatus.cross_ec.nodes" :key="nodeInfo.nodeId"
-                 class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border">
-              <span class="w-3 h-3 rounded-full" :class="nodeInfo.online === true ? 'bg-green-500' : 'bg-red-500'"></span>
-              <div class="flex-1">
-                <div class="font-semibold">{{ nodeInfo.nodeName || nodeInfo.nodeId }}</div>
-                <div class="text-xs text-gray-500">{{ nodeInfo.disks?.length || 0 }} 个磁盘</div>
-              </div>
-              <span class="text-xs px-2 py-1 rounded" :class="nodeInfo.online === true ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'">
-  {{ nodeInfo.online === true ? '在线' : '离线' }}
-</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div v-else class="text-center py-8 text-gray-500">
-        <div class="text-4xl mb-2">📭</div>
-        <p>未配置跨节点EC</p>
-        <button @click="window.ecTab = 'cross-node'" class="mt-2 text-green-600 hover:underline text-sm">
-          去配置 →
-        </button>
-      </div>
-    </div>
-
-    <!-- 单节点EC状态 -->
-    <div class="bg-white rounded-lg shadow border p-6">
-      <h5 class="font-semibold text-lg mb-4 flex items-center gap-2">
-        <span class="text-2xl">💾</span> 单节点EC状态
-      </h5>
-
-      <div v-if="window.ecStatus?.single_ec_nodes?.length > 0" class="space-y-3">
-        <div v-for="node in window.ecStatus.single_ec_nodes" :key="node.node_id"
-             class="flex items-center gap-4 p-4 bg-gray-50 rounded-lg border hover:bg-gray-100">
-          <div class="w-12 h-12 bg-white rounded-lg shadow flex items-center justify-center text-2xl">🖥️</div>
-          <div class="flex-1">
-            <div class="font-semibold">{{ node.node_name }}</div>
-            <div class="text-xs text-gray-500">{{ node.ip }}</div>
-          </div>
-          <div class="text-center px-4">
-            <div class="text-xs text-gray-500">K / M</div>
-            <div class="font-bold text-blue-600">{{ node.config.k }} / {{ node.config.m }}</div>
-          </div>
-          <div class="text-center px-4">
-            <div class="text-xs text-gray-500">磁盘数</div>
-            <div class="font-bold text-purple-600">{{ node.config.disks?.length || 0 }}</div>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="w-3 h-3 rounded-full" :class="node.online ? 'bg-green-500 animate-pulse' : 'bg-red-500'"></span>
-            <span class="text-sm" :class="node.online ? 'text-green-600' : 'text-red-600'">
-              {{ node.online ? '健康' : '异常' }}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div v-else class="text-center py-8 text-gray-500">
-        <div class="text-4xl mb-2">📭</div>
-        <p>暂无单节点EC配置</p>
-        <button @click="window.ecTab = 'single-node'" class="mt-2 text-green-600 hover:underline text-sm">
-          去配置 →
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
     <!-- ========== 上传文件 ========== -->
 <div v-else-if="window.ecTab === 'upload'">
   <div class="bg-white rounded-lg shadow border p-6 mb-6">
@@ -3396,6 +3322,50 @@
 </div>
 </div>
 
+
+        <!-- 单节点EC导出对话框 -->
+<div v-if="window.showExportSingleEcDialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+  <div class="bg-white rounded-lg shadow-xl w-[500px] p-6">
+    <h3 class="text-lg font-bold mb-4">📤 导出单节点EC文件</h3>
+    <p class="text-sm text-gray-600 mb-4">从 {{ window.selectedSingleEcNode?.name }} 节点导出</p>
+    <div class="mb-4">
+      <label class="block text-sm font-semibold mb-2">选择目标磁盘（非EC磁盘）</label>
+      <div class="border rounded-lg p-3 max-h-48 overflow-auto">
+        <div v-if="window.singleExportDisks?.length > 0">
+          <label v-for="disk in window.singleExportDisks" :key="disk.mount || disk.drive"
+                 class="flex items-center gap-2 p-2 hover:bg-gray-50 cursor-pointer"
+                 :class="window.singleExportForm.selectedDisk === (disk.mount || disk.drive) ? 'bg-blue-50 border border-blue-300 rounded' : ''">
+            <input type="radio" :value="disk.mount || disk.drive" v-model="window.singleExportForm.selectedDisk">
+            <span>💾 {{ disk.mount || disk.drive }}</span>
+            <span class="text-xs text-gray-500 ml-auto">{{ disk.free_gb || disk.free }} GB 可用</span>
+          </label>
+        </div>
+        <div v-else class="text-center text-gray-500 py-4">暂无可用的非EC磁盘</div>
+      </div>
+    </div>
+    <div class="mb-4">
+      <label class="block text-sm font-semibold mb-2">导出路径</label>
+      <input v-model="window.singleExportForm.exportPath" type="text" placeholder="ec_export" class="w-full px-4 py-2 border rounded-lg">
+    </div>
+    <div class="bg-blue-50 border-l-4 border-blue-500 p-3 mb-4 text-sm">
+      <p>📁 共 <strong>{{ window.singleExportFileCount || 0 }}</strong> 个文件</p>
+    </div>
+    <div v-if="window.singleExportProgress?.show" class="bg-gray-100 rounded-lg p-4 mb-4">
+      <div class="flex justify-between text-sm mb-2">
+        <span>{{ window.singleExportProgress.status }}</span>
+        <span>{{ window.singleExportProgress.current }}/{{ window.singleExportProgress.total }}</span>
+      </div>
+      <div class="w-full bg-gray-300 rounded-full h-2">
+        <div class="bg-blue-500 h-2 rounded-full" :style="{ width: (window.singleExportProgress.current / window.singleExportProgress.total * 100) + '%' }"></div>
+      </div>
+    </div>
+    <div class="flex justify-end gap-2">
+      <button @click="window.showExportSingleEcDialog = false" class="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">取消</button>
+      <button @click="executeExportSingleEcFiles(window)" :disabled="!window.singleExportForm.selectedDisk || window.singleExportProgress?.show"
+              class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50">开始导出</button>
+    </div>
+  </div>
+</div>
           <!-- 系统监控窗口 -->
 <div v-if="window.type === 'system-monitor'" class="h-full flex flex-col">
   <div v-if="window.monitorView === 'overview'" class="h-full flex flex-col">

@@ -885,27 +885,110 @@ def update_volume(pool_id, volume_name):
 @admin_required
 def delete_volume(pool_id, volume_name):
     """删除逻辑卷"""
+    delete_files = request.args.get('delete_files', 'false').lower() == 'true'
+
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # 检查是否有文件
+    # 获取池信息
+    cursor.execute('SELECT disks FROM cross_node_pools WHERE id = ? AND status != "deleted"', (pool_id,))
+    pool_row = cursor.fetchone()
+    if not pool_row:
+        conn.close()
+        return jsonify({'error': '池不存在'}), 404
+
+    disks = json.loads(pool_row[0]) if pool_row[0] else []
+
+    # 检查是否有文件记录
     cursor.execute('''
         SELECT COUNT(*) FROM cross_pool_files 
         WHERE pool_id = ? AND filepath LIKE ?
     ''', (pool_id, f'{volume_name}/%'))
     file_count = cursor.fetchone()[0]
 
-    if file_count > 0:
-        conn.close()
-        return jsonify({'error': f'卷中还有 {file_count} 个文件，请先清空'}), 400
+    # 删除实际文件（如果需要）
+    deleted_results = []
+    pending_nodes = []
 
+    if delete_files and disks:
+        # 获取节点信息
+        cursor.execute('SELECT node_id, ip, port, status FROM nodes')
+        nodes_map = {row[0]: {'ip': row[1], 'port': row[2], 'status': row[3]} for row in cursor.fetchall()}
+
+        for disk in disks:
+            node_id = disk.get('nodeId')
+            disk_path = disk.get('disk')
+            node_info = nodes_map.get(node_id)
+
+            if not node_info:
+                continue
+
+            target_path = f"{disk_path}/cross_pool/{volume_name}"
+
+            if node_info['status'] != 'online':
+                # 节点离线，记录待处理任务
+                pending_nodes.append(node_id)
+                cursor.execute('''
+                    INSERT INTO pending_tasks (task_type, node_id, params)
+                    VALUES (?, ?, ?)
+                ''', ('delete_volume_files', node_id, json.dumps({
+                    'pool_id': pool_id,
+                    'volume_name': volume_name,
+                    'target_path': target_path
+                })))
+                continue
+
+            # 节点在线，立即删除
+            try:
+                resp = requests.post(
+                    f"http://{node_info['ip']}:{node_info['port']}/api/internal/delete-dir",
+                    json={'path': target_path},
+                    headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+                    timeout=30
+                )
+                deleted_results.append({
+                    'node_id': node_id,
+                    'path': target_path,
+                    'success': resp.status_code == 200
+                })
+            except Exception as e:
+                # 删除失败，记录待处理任务
+                cursor.execute('''
+                    INSERT INTO pending_tasks (task_type, node_id, params, last_error)
+                    VALUES (?, ?, ?, ?)
+                ''', ('delete_volume_files', node_id, json.dumps({
+                    'pool_id': pool_id,
+                    'volume_name': volume_name,
+                    'target_path': target_path
+                }), str(e)))
+                deleted_results.append({
+                    'node_id': node_id,
+                    'success': False,
+                    'error': str(e),
+                    'pending': True
+                })
+
+    # 删除文件记录
+    cursor.execute('''
+        DELETE FROM cross_pool_files 
+        WHERE pool_id = ? AND filepath LIKE ?
+    ''', (pool_id, f'{volume_name}/%'))
+
+    # 删除卷记录
     cursor.execute('DELETE FROM cross_pool_volumes WHERE pool_id = ? AND name = ?', (pool_id, volume_name))
     conn.commit()
     conn.close()
 
-    return jsonify({'success': True, 'message': '删除成功'})
+    result = {'success': True, 'message': '删除成功'}
+    if delete_files:
+        result['deleted_results'] = deleted_results
+    if file_count > 0:
+        result['deleted_file_records'] = file_count
+    if pending_nodes:
+        result['pending_nodes'] = pending_nodes
+        result['message'] += f'，{len(pending_nodes)}个离线节点将在上线后删除'
 
-
+    return jsonify(result)
 
 @cross_pool_bp.route('/api/cross-pools/<int:pool_id>/upload', methods=['POST'])
 @login_required
@@ -1343,6 +1426,44 @@ def process_pending_tasks():
                 success = resp.status_code == 200
                 if not success:
                     error_msg = resp.text
+
+            elif task_type == 'delete_volume_files':
+                # 删除逻辑卷文件
+                target_path = params.get('target_path')
+                resp = requests.post(
+                    f"http://{node_info['ip']}:{node_info['port']}/api/internal/delete-dir",
+                    json={'path': target_path},
+                    headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+                    timeout=60
+                )
+                success = resp.status_code == 200
+                if not success:
+                    error_msg = resp.text
+
+            elif task_type == 'delete_ec_shards':
+                # 删除EC分片
+                shards = params.get('shards', [])
+                success_count = 0
+                for shard in shards:
+                    try:
+                        resp = requests.delete(
+                            f"http://{node_info['ip']}:{node_info['port']}/api/ec_shard",
+                            params={
+                                'filename': shard.get('filename'),
+                                'shard_index': shard.get('shard_index'),
+                                'disk': shard.get('disk')
+                            },
+                            headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+                            timeout=10
+                        )
+                        if resp.status_code == 200:
+                            success_count += 1
+                    except:
+                        pass
+                success = success_count == len(shards)
+                if not success:
+                    error_msg = f'删除了 {success_count}/{len(shards)} 个分片'
+
             else:
                 error_msg = f'未知任务类型: {task_type}'
         except Exception as e:

@@ -120,6 +120,44 @@ def _process_pending_tasks_for_node(node_id):
                 success = resp.status_code == 200
                 if not success:
                     error_msg = resp.text
+
+            elif task_type == 'delete_volume_files':
+                # 删除逻辑卷文件
+                target_path = params.get('target_path')
+                resp = requests.post(
+                    f"http://{node_ip}:{node_port}/api/internal/delete-dir",
+                    json={'path': target_path},
+                    headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+                    timeout=60
+                )
+                success = resp.status_code == 200
+                if not success:
+                    error_msg = resp.text
+
+            elif task_type == 'delete_ec_shards':
+                # 删除EC分片
+                shards = params.get('shards', [])
+                success_count = 0
+                for shard in shards:
+                    try:
+                        resp = requests.delete(
+                            f"http://{node_ip}:{node_port}/api/ec_shard",
+                            params={
+                                'filename': shard.get('filename'),
+                                'shard_index': shard.get('shard_index'),
+                                'disk': shard.get('disk')
+                            },
+                            headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+                            timeout=10
+                        )
+                        if resp.status_code == 200:
+                            success_count += 1
+                    except:
+                        pass
+                success = success_count == len(shards)
+                if not success:
+                    error_msg = f'删除了 {success_count}/{len(shards)} 个分片'
+
             else:
                 error_msg = f'未知任务类型: {task_type}'
         except Exception as e:
