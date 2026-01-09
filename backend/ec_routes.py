@@ -271,7 +271,8 @@ def get_node_ec_config(node_id):
         if response.status_code == 200:
             return jsonify(response.json())
         else:
-            return jsonify({'error': '获取配置失败'}), 500
+            # 节点可能未配置EC，返回空配置而不是500错误
+            return jsonify({'config': None, 'capacity': None})
 
     except Exception as e:
         return jsonify({'error': f'请求节点失败: {str(e)}'}), 500

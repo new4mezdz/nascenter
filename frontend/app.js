@@ -238,10 +238,10 @@ refreshAllWindowsData() {
                 this.loadCrossPools(win);
                 break;
             case 'encryption':
-                this.loadEncryptionNodes(win);
+
                 break;
             case 'ec-config':
-                this.loadEcWindowData(win);
+
                 break;
             case 'file-manager':
     // 文件管理器不自动刷新，避免干扰用户操作
@@ -579,25 +579,61 @@ async selectNodeForSingleEc(win, node) {
     win.singleEcLoading = true;
     win.singleEcConfig = null;
     win.singleEcForm = { k: 4, m: 2, disks: [] };
+    win.singleEcDiskStatus = [];
+    win.singleEcHealthReport = null;
+    win.singleEcNodeDisks = [];
 
     try {
-        // 获取节点EC配置
-        const cfgRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/ec_config`);
-        if (cfgRes.data && cfgRes.data.config && (cfgRes.data.config.scheme || cfgRes.data.config.k)) {
-    win.singleEcConfig = cfgRes.data.config;
-}
-        // 获取磁盘列表
-        const diskRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/disks`);
-        win.singleEcNodeDisks = (diskRes.data.disks || diskRes.data || []).filter(d =>
-            d.mount && !['C:/', 'D:/', '/'].includes(d.mount.toUpperCase().replace('\\', '/'))
-        );
+        // 并行请求EC配置和磁盘列表
+        const [cfgRes, diskRes] = await Promise.allSettled([
+            axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/ec_config`, { timeout: 10000 }),
+            axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/disks`, { timeout: 10000 })
+        ]);
+
+        // 处理EC配置
+        if (cfgRes.status === 'fulfilled' && cfgRes.value.data?.config?.k) {
+            win.singleEcConfig = cfgRes.value.data.config;
+
+            // 获取磁盘状态
+            try {
+                const statusRes = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/proxy/ec_status`, { timeout: 10000 });
+                win.singleEcDiskStatus = statusRes.data.disk_status || [];
+            } catch (e) {
+                console.error('获取磁盘状态失败:', e);
+            }
+        }
+
+        // 处理磁盘列表
+        if (diskRes.status === 'fulfilled') {
+            const disks = diskRes.value.data.disks || diskRes.value.data || [];
+            win.singleEcNodeDisks = disks.filter(d =>
+                d.mount && !['C:/', 'D:/', '/'].includes(d.mount.toUpperCase().replace('\\', '/'))
+            );
+        }
     } catch (e) {
         console.error('获取节点配置失败:', e);
-        win.singleEcNodeDisks = [];
     }
+
     win.singleEcLoading = false;
 },
 
+
+        getDiskStatus(win, disk) {
+    if (!win.singleEcDiskStatus) return null;
+    const status = win.singleEcDiskStatus.find(d => d.disk === disk);
+    return status ? status.status : null;
+},
+
+getDiskStatusText(win, disk) {
+    const status = this.getDiskStatus(win, disk);
+    const map = {
+        'online': '正常',
+        'offline': '离线',
+        'replaced': '已更换',
+        'empty': '空盘'
+    };
+    return map[status] || '未知';
+},
         triggerEcFileInput(win) {
     const input = document.getElementById('ecFileInput' + win.id);
     if (input) input.click();
@@ -1050,7 +1086,24 @@ getDiskStatus(win, nodeId, disk) {
     const key = `${nodeId}:${mount}`;
     return win.crossEcDiskStatus?.[key] || 'unknown';
 },
+// 获取单节点EC磁盘状态
+getSingleEcDiskStatus(win, disk) {
+    if (!win.singleEcDiskStatus || !win.singleEcDiskStatus.length) return null;
+    const found = win.singleEcDiskStatus.find(d => d.disk === disk);
+    return found ? found.status : null;
+},
 
+// 获取单节点EC磁盘状态文本
+getSingleEcDiskStatusText(win, disk) {
+    const status = this.getSingleEcDiskStatus(win, disk);
+    const map = {
+        'online': '正常',
+        'offline': '离线',
+        'replaced': '已更换',
+        'empty': '空盘'
+    };
+    return map[status] || '检测中...';
+},
 // 检测丢失的分片
 async detectLostShards(window) {
     try {
@@ -3152,7 +3205,7 @@ async performSingleEcHealthCheck(win) {
     win.singleEcHealthChecking = true;
     try {
         // 通过代理调用客户端的健康检查接口
-        const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${nodeId}/proxy/ec/health`);
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${nodeId}/proxy/ec_health_check`);
         win.singleEcHealthReport = {
             healthy: res.data.healthy_files || 0,
             at_risk: res.data.at_risk_files || 0,

@@ -2881,16 +2881,36 @@
 
 <!-- 磁盘列表 -->
           <!-- 磁盘列表 -->
-          <div class="border-t pt-4">
-            <h5 class="font-semibold mb-3">已配置磁盘 ({{ window.singleEcConfig.disks?.length || 0 }}个)</h5>
-            <div class="grid grid-cols-3 gap-3">
-              <div v-for="disk in window.singleEcConfig.disks" :key="disk"
-                   class="bg-gray-50 p-3 rounded-lg border flex items-center gap-2">
-                <span class="text-2xl">💾</span>
-                <span class="font-mono">{{ disk }}</span>
-              </div>
-            </div>
-          </div>
+          <!-- 磁盘列表 -->
+<div class="border-t pt-4">
+  <h5 class="font-semibold mb-3">已配置磁盘 ({{ window.singleEcConfig.disks?.length || 0 }}个)</h5>
+  <div class="grid grid-cols-3 gap-3">
+    <div v-for="(disk, index) in window.singleEcConfig.disks" :key="disk"
+     class="p-3 rounded-lg border flex items-center gap-2"
+     :class="{
+       'bg-green-50 border-green-300': getSingleEcDiskStatus(window, disk) === 'online',
+       'bg-red-50 border-red-300': getSingleEcDiskStatus(window, disk) === 'offline',
+       'bg-yellow-50 border-yellow-300': getSingleEcDiskStatus(window, disk) === 'replaced' || getSingleEcDiskStatus(window, disk) === 'empty',
+       'bg-gray-50': !getSingleEcDiskStatus(window, disk)
+     }">
+  <span class="text-2xl">
+    {{ getSingleEcDiskStatus(window, disk) === 'online' ? '💚' :
+       (getSingleEcDiskStatus(window, disk) === 'offline' ? '🔴' :
+       (getSingleEcDiskStatus(window, disk) === 'replaced' || getSingleEcDiskStatus(window, disk) === 'empty' ? '🟡' : '💾')) }}
+  </span>
+  <div>
+    <div class="font-mono text-sm">{{ disk }}</div>
+    <div class="text-xs" :class="{
+      'text-green-600': getSingleEcDiskStatus(window, disk) === 'online',
+      'text-red-600': getSingleEcDiskStatus(window, disk) === 'offline',
+      'text-yellow-600': getSingleEcDiskStatus(window, disk) === 'replaced' || getSingleEcDiskStatus(window, disk) === 'empty'
+    }">
+      {{ getSingleEcDiskStatusText(window, disk) }}
+    </div>
+  </div>
+</div>
+  </div>
+</div>
         </div>
 
         <!-- 创建新配置 -->
