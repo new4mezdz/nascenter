@@ -1119,278 +1119,246 @@ def add_disk_to_cross_ec():
 
 @ec_bp.route('/api/cross_ec_config/check_shards', methods=['GET'])
 @login_required
-def check_cross_ec_shards():
-    """检测丢失的分片"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+def cross_ec_check_shards():
+    """检测跨节点EC丢失的分片"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
-    # 获取所有EC文件
-    cursor.execute('SELECT filename, size, k, m, shard_size, disks FROM cross_ec_files')
-    files = cursor.fetchall()
-    conn.close()
+        # 获取EC配置
+        cursor.execute('SELECT k, m, nodes FROM cross_ec_config WHERE status = ?', ('active',))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'error': '未配置跨节点EC'}), 404
 
-    lost_shards = []
+        k, m = row[0], row[1]
 
-    for row in files:
-        filename, original_size, k, m, shard_size, disks_json = row
-        disks = json.loads(disks_json)
+        # 获取在线节点
+        online_nodes = {}
+        cursor.execute('SELECT node_id, ip, port FROM nodes WHERE status = ?', ('online',))
+        for r in cursor.fetchall():
+            online_nodes[str(r[0])] = {'ip': r[1], 'port': r[2]}
 
-        lost_count = 0
-        lost_indices = []
+        # 获取所有EC文件
+        cursor.execute('SELECT filename, size, disks FROM cross_ec_files')
+        files = cursor.fetchall()
+        conn.close()
 
-        # 检查每个分片是否可访问
-        for i, disk_info in enumerate(disks[:k + m]):
-            try:
-                resp = requests.get(
-                    f"http://{disk_info['ip']}:{disk_info['port']}/api/ec_shard",
-                    params={
-                        'filename': filename,
-                        'shard_index': i,
-                        'disk': disk_info['disk'],
-                        'check_only': 'true'  # 只检查存在性，不返回数据
-                    },
-                    headers={'X-NAS-Secret': NAS_SHARED_SECRET},
-                    timeout=5
-                )
-                if resp.status_code != 200:
-                    lost_count += 1
-                    lost_indices.append(i)
-            except Exception as e:
-                lost_count += 1
-                lost_indices.append(i)
+        lost_shards = []
 
-        if lost_count > 0:
-            lost_shards.append({
-                'filename': filename,
-                'size': original_size,
-                'k': k,
-                'm': m,
-                'lost_count': lost_count,
-                'lost_indices': lost_indices,
-                'recoverable': lost_count <= m  # 丢失数量不超过m则可恢复
-            })
+        for filename, size, disks_json in files:
+            if not disks_json:
+                continue
 
-    return jsonify({
-        'success': True,
-        'lost_shards': lost_shards,
-        'total_files': len(files),
-        'affected_files': len(lost_shards)
-    })
+            disks = json.loads(disks_json) if isinstance(disks_json, str) else disks_json
+            if not isinstance(disks, list):
+                continue
+
+            file_lost = []
+            available_count = 0
+
+            for idx, disk_info in enumerate(disks):
+                if not isinstance(disk_info, dict):
+                    continue
+
+                node_id = str(disk_info.get('node_id') or disk_info.get('nodeId') or '')
+                shard_path = disk_info.get('path', '')
+
+                # 检查节点是否在线
+                if node_id not in online_nodes:
+                    file_lost.append({
+                        'index': idx,
+                        'node_id': node_id,
+                        'path': shard_path,
+                        'reason': '节点离线'
+                    })
+                    continue
+
+                # 检查分片文件是否存在
+                node_conn = online_nodes[node_id]
+                try:
+                    resp = requests.get(
+                        f"http://{node_conn['ip']}:{node_conn['port']}/api/file_exists",
+                        params={'path': shard_path},
+                        headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+                        timeout=5
+                    )
+                    if resp.status_code == 200 and resp.json().get('exists'):
+                        available_count += 1
+                    else:
+                        file_lost.append({
+                            'index': idx,
+                            'node_id': node_id,
+                            'path': shard_path,
+                            'reason': '分片不存在'
+                        })
+                except Exception as e:
+                    file_lost.append({
+                        'index': idx,
+                        'node_id': node_id,
+                        'path': shard_path,
+                        'reason': f'检查失败: {str(e)}'
+                    })
+
+            # 有丢失的分片才加入列表
+            if file_lost:
+                lost_shards.append({
+                    'filename': filename,
+                    'size': size,
+                    'total_shards': len(disks),
+                    'available_shards': available_count,
+                    'lost': file_lost,
+                    'can_rebuild': available_count >= k,
+                    'k': k,
+                    'm': m
+                })
+
+        return jsonify({
+            'success': True,
+            'lost_shards': lost_shards,
+            'total_files_with_loss': len(lost_shards)
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 
 @ec_bp.route('/api/cross_ec_config/rebuild_shard', methods=['POST'])
 @login_required
 @admin_required
-def rebuild_cross_ec_shard():
-    """重建丢失的分片"""
-    data = request.json
-    filename = data.get('filename')
-    target_disk = data.get('target_disk')  # 格式: "node_id:disk_path" 或 None(自动选择)
-
-    if not filename:
-        return jsonify({'error': '缺少文件名'}), 400
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    # 获取文件信息
-    cursor.execute('SELECT size, k, m, shard_size, disks FROM cross_ec_files WHERE filename = ?', (filename,))
-    row = cursor.fetchone()
-
-    if not row:
-        conn.close()
-        return jsonify({'error': '文件不存在'}), 404
-
-    original_size, k, m, shard_size, disks_json = row
-    disks = json.loads(disks_json)
-
-    # 收集现有分片，记录丢失的分片索引
-    shards = [None] * (k + m)
-    lost_indices = []
-
-    for i, disk_info in enumerate(disks[:k + m]):
-        try:
-            resp = requests.get(
-                f"http://{disk_info['ip']}:{disk_info['port']}/api/ec_shard",
-                params={
-                    'filename': filename,
-                    'shard_index': i,
-                    'disk': disk_info['disk']
-                },
-                headers={'X-NAS-Secret': NAS_SHARED_SECRET},
-                timeout=10
-            )
-            if resp.status_code == 200:
-                shards[i] = bytes.fromhex(resp.json()['shard_data'])
-            else:
-                lost_indices.append(i)
-        except:
-            lost_indices.append(i)
-
-    available = sum(1 for s in shards if s is not None)
-
-    if available < k:
-        conn.close()
-        return jsonify({'error': f'分片不足，需要至少{k}个，只有{available}个，无法重建'}), 400
-
-    if len(lost_indices) == 0:
-        conn.close()
-        return jsonify({'success': True, 'message': '所有分片完整，无需重建'})
-
-    # 解码还原原始数据
+def cross_ec_rebuild_shard():
+    """重建跨节点EC分片 - 读取现有分片→解码→重新编码→写回所有磁盘"""
     try:
-        decoded = rs_decode(shards, k, m, shard_size, original_size)
-    except Exception as e:
-        conn.close()
-        return jsonify({'error': f'解码失败: {str(e)}'}), 500
+        data = request.json
+        filename = data.get('filename')
 
-    # 重新编码
-    try:
-        new_shards = rs_encode(decoded, k, m)
-    except Exception as e:
-        conn.close()
-        return jsonify({'error': f'编码失败: {str(e)}'}), 500
+        if not filename:
+            return jsonify({'error': '缺少文件名'}), 400
 
-    # 确定目标磁盘
-    if target_disk:
-        # 用户指定目标磁盘
-        parts = target_disk.split(':', 1)
-        if len(parts) != 2:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # 获取文件信息
+        cursor.execute('SELECT filename, size, k, m, shard_size, sha256, disks FROM cross_ec_files WHERE filename = ?', (filename,))
+        file_row = cursor.fetchone()
+        if not file_row:
             conn.close()
-            return jsonify({'error': '目标磁盘格式错误，应为 node_id:disk_path'}), 400
-        target_node_id, target_disk_path = parts
+            return jsonify({'error': '文件不存在'}), 404
 
-        cursor.execute('SELECT ip, port FROM nodes WHERE node_id = ?', (target_node_id,))
-        target_node = cursor.fetchone()
-        if not target_node:
-            conn.close()
-            return jsonify({'error': '目标节点不存在'}), 404
+        original_size = file_row[1]
+        file_k = file_row[2]
+        file_m = file_row[3]
+        shard_size = file_row[4]
+        file_sha256 = file_row[5]
+        disks_json = file_row[6]
 
-        target_ip, target_port = target_node
-    else:
-        target_node_id = None
-        target_ip = None
-        target_port = None
-        target_disk_path = None
+        disks = json.loads(disks_json) if isinstance(disks_json, str) else disks_json
 
-    # 重建丢失的分片
-    rebuilt_count = 0
-    errors = []
+        # 获取在线节点
+        online_nodes = {}
+        cursor.execute('SELECT node_id, ip, port FROM nodes WHERE status = ?', ('online',))
+        for r in cursor.fetchall():
+            online_nodes[str(r[0])] = {'ip': r[1], 'port': r[2]}
 
-    for idx in lost_indices:
-        shard_data = new_shards[idx]
+        conn.close()
 
-        # 确定存储位置
-        if target_node_id and target_disk_path:
-            # 使用指定的目标磁盘
-            store_ip = target_ip
-            store_port = target_port
-            store_disk = target_disk_path
-            store_node_id = target_node_id
-        else:
-            # 尝试使用原位置，如果原节点在线的话
-            original_disk_info = disks[idx]
-            try:
-                # 检查原节点是否在线
-                cursor.execute('SELECT ip, port, status FROM nodes WHERE node_id = ?', (original_disk_info['node_id'],))
-                node_check = cursor.fetchone()
-                if node_check and node_check[2] == 'online':
-                    store_ip = node_check[0]
-                    store_port = node_check[1]
-                    store_disk = original_disk_info['disk']
-                    store_node_id = original_disk_info['node_id']
-                else:
-                    # 原节点离线，从EC配置中找一个在线的节点
-                    cursor.execute('''
-                        SELECT id, nodes FROM cross_ec_config 
-                        WHERE status = 'active' ORDER BY created_at DESC LIMIT 1
-                    ''')
-                    config_row = cursor.fetchone()
-                    if not config_row:
-                        errors.append(f'分片{idx}: 无法找到可用节点')
-                        continue
-
-                    config_nodes = json.loads(config_row[1])
-                    found_target = False
-
-                    for cn in config_nodes:
-                        cn_id = cn.get('node_id')
-                        cursor.execute('SELECT ip, port, status FROM nodes WHERE node_id = ?', (cn_id,))
-                        cn_check = cursor.fetchone()
-                        if cn_check and cn_check[2] == 'online':
-                            store_ip = cn_check[0]
-                            store_port = cn_check[1]
-                            store_disk = cn.get('disks', ['/'])[0]
-                            store_node_id = cn_id
-                            found_target = True
-                            break
-
-                    if not found_target:
-                        errors.append(f'分片{idx}: 没有可用的在线节点')
-                        continue
-            except Exception as e:
-                errors.append(f'分片{idx}: 查找目标节点失败 - {str(e)}')
+        # 1. 收集现有分片
+        shards = [None] * (file_k + file_m)
+        for idx, disk_info in enumerate(disks):
+            if not isinstance(disk_info, dict):
                 continue
 
-        # 存储重建的分片
+            node_id = str(disk_info.get('node_id') or disk_info.get('nodeId') or '')
+            shard_path = disk_info.get('path', '')
+
+            if node_id not in online_nodes:
+                continue
+
+            node_conn = online_nodes[node_id]
+            try:
+                resp = requests.get(
+                    f"http://{node_conn['ip']}:{node_conn['port']}/api/read_shard",
+                    params={'path': shard_path},
+                    headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+                    timeout=30
+                )
+                if resp.status_code == 200:
+                    shard_data = bytes.fromhex(resp.json()['shard_data'])
+                    shards[idx] = shard_data
+            except:
+                continue
+
+        # 检查是否有足够的分片
+        available = sum(1 for s in shards if s is not None)
+        if available < file_k:
+            return jsonify({'error': f'分片不足，需要{file_k}个，只有{available}个，无法重建'}), 400
+
+        # 2. 解码还原原文件
         try:
-            resp = requests.post(
-                f"http://{store_ip}:{store_port}/api/ec_shard",
-                json={
-                    'filename': filename,
-                    'shard_index': idx,
-                    'shard_data': shard_data.hex(),
-                    'disk': store_disk,
-                    'meta': {
-                        'k': k,
-                        'm': m,
-                        'shard_size': len(shard_data),
-                        'original_size': original_size,
-                        'rebuilt': True,
-                        'rebuilt_at': time.strftime('%Y-%m-%d %H:%M:%S')
-                    }
-                },
-                headers={'X-NAS-Secret': NAS_SHARED_SECRET},
-                timeout=60
-            )
-
-            if resp.status_code == 200:
-                # 更新disks信息
-                disks[idx] = {
-                    'node_id': store_node_id,
-                    'ip': store_ip,
-                    'port': store_port,
-                    'disk': store_disk
-                }
-                rebuilt_count += 1
-            else:
-                errors.append(f'分片{idx}: 存储失败 - {resp.text}')
+            decoded_data = rs_decode(shards, file_k, file_m, shard_size, original_size)
         except Exception as e:
-            errors.append(f'分片{idx}: 存储异常 - {str(e)}')
+            return jsonify({'error': f'解码失败: {str(e)}'}), 500
 
-    # 更新数据库中的磁盘信息
-    if rebuilt_count > 0:
-        cursor.execute('''
-            UPDATE cross_ec_files SET disks = ? WHERE filename = ?
-        ''', (json.dumps(disks), filename))
-        conn.commit()
+        # 验证SHA256
+        if file_sha256:
+            actual_sha256 = hashlib.sha256(decoded_data).hexdigest()
+            if actual_sha256 != file_sha256:
+                return jsonify({'error': 'SHA256校验失败，数据可能已损坏'}), 500
 
-    conn.close()
+        # 3. 重新编码
+        try:
+            new_shards = rs_encode(decoded_data, file_k, file_m)
+        except Exception as e:
+            return jsonify({'error': f'重新编码失败: {str(e)}'}), 500
 
-    if errors:
+        # 4. 写回所有磁盘
+        write_success = 0
+        write_errors = []
+
+        for idx, disk_info in enumerate(disks):
+            if not isinstance(disk_info, dict):
+                continue
+
+            node_id = str(disk_info.get('node_id') or disk_info.get('nodeId') or '')
+            shard_path = disk_info.get('path', '')
+
+            if node_id not in online_nodes:
+                write_errors.append(f'节点{node_id}离线')
+                continue
+
+            node_conn = online_nodes[node_id]
+            try:
+                resp = requests.post(
+                    f"http://{node_conn['ip']}:{node_conn['port']}/api/write_shard",
+                    json={
+                        'path': shard_path,
+                        'shard_data': new_shards[idx].hex()
+                    },
+                    headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+                    timeout=30
+                )
+                if resp.status_code == 200:
+                    write_success += 1
+                else:
+                    write_errors.append(f'节点{node_id}写入失败: {resp.text}')
+            except Exception as e:
+                write_errors.append(f'节点{node_id}写入异常: {str(e)}')
+
         return jsonify({
-            'success': rebuilt_count > 0,
-            'message': f'重建完成，成功{rebuilt_count}个，失败{len(errors)}个',
-            'rebuilt_count': rebuilt_count,
-            'errors': errors
+            'success': True,
+            'filename': filename,
+            'write_success': write_success,
+            'write_total': len(disks),
+            'errors': write_errors if write_errors else None
         })
 
-    return jsonify({
-        'success': True,
-        'message': f'分片重建成功，共重建{rebuilt_count}个分片',
-        'rebuilt_count': rebuilt_count
-    })
-
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 @ec_bp.route('/api/cross_ec_export', methods=['POST'])
 @login_required
@@ -1521,7 +1489,6 @@ def cross_ec_health_check():
 
             node_conn = online_nodes[node_id]
             try:
-                import requests
                 url = f"http://{node_conn['ip']}:{node_conn['port']}/api/disks"
                 resp = requests.get(url, timeout=5)
                 if resp.status_code == 200:
@@ -1532,7 +1499,6 @@ def cross_ec_health_check():
                         actual_mounts.add(mount)
 
                     for disk in node_info.get('disks', []):
-                        # 兼容新旧格式
                         disk_mount = disk if isinstance(disk, str) else disk.get('mount', disk)
                         normalized_disk = disk_mount.upper().replace('\\', '/').rstrip('/')
                         if normalized_disk in actual_mounts:
@@ -1551,19 +1517,11 @@ def cross_ec_health_check():
         corrupted_files = 0
         file_details = []
 
-        # 调试信息
-        debug_info = {
-            'online_disks_list': list(online_disks),
-            'k': k,
-            'm': m
-        }
-
         def normalize_disk(d):
             """统一磁盘格式"""
             return d.upper().replace('\\', '/').rstrip('/') if d else ''
 
         for filename, size, disks_json in files:
-            file_debug = {'filename': filename, 'shards': []}
             try:
                 if not disks_json:
                     corrupted_files += 1
@@ -1594,30 +1552,60 @@ def cross_ec_health_check():
                 # 统计在线的分片数
                 online_shards = 0
                 total_shards = len(disks)
+                shards_detail = []
 
                 for idx, disk_info in enumerate(disks):
                     if isinstance(disk_info, dict):
                         node_id = str(disk_info.get('node_id') or disk_info.get('nodeId') or '')
                         disk = disk_info.get('disk', '')
+                        shard_path = disk_info.get('path', '')
 
-                        # 标准化后匹配
                         normalized_key = f"{node_id}:{normalize_disk(disk)}"
 
-                        # 在online_disks中查找（也需要标准化比较）
-                        is_online = any(
+                        # 先检查节点和磁盘是否在线
+                        disk_online = any(
                             f"{node_id}:{normalize_disk(d.split(':', 1)[1] if ':' in d else d)}" == normalized_key
                             for d in online_disks if d.startswith(f"{node_id}:")
                         )
 
-                        if is_online:
+                        if not disk_online:
+                            shards_detail.append({
+                                'index': idx, 'node_id': node_id, 'disk': disk,
+                                'path': shard_path, 'exists': False, 'reason': '节点或磁盘离线'
+                            })
+                            continue
+
+                        # 磁盘在线，再检查分片文件是否真实存在
+                        node_conn = online_nodes.get(node_id)
+                        shard_exists = False
+                        reason = ''
+
+                        if node_conn and shard_path:
+                            try:
+                                check_url = f"http://{node_conn['ip']}:{node_conn['port']}/api/file_exists"
+                                resp = requests.get(
+                                    check_url,
+                                    params={'path': shard_path},
+                                    headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+                                    timeout=5
+                                )
+                                if resp.status_code == 200:
+                                    shard_exists = resp.json().get('exists', False)
+                                    if not shard_exists:
+                                        reason = '分片文件不存在'
+                                else:
+                                    reason = f'检查失败: {resp.status_code}'
+                            except Exception as e:
+                                reason = f'请求异常: {str(e)}'
+                        else:
+                            reason = '缺少路径信息'
+
+                        if shard_exists:
                             online_shards += 1
 
-                        file_debug['shards'].append({
-                            'index': idx,
-                            'node_id': node_id,
-                            'disk': disk,
-                            'normalized_key': normalized_key,
-                            'is_online': is_online
+                        shards_detail.append({
+                            'index': idx, 'node_id': node_id, 'disk': disk,
+                            'path': shard_path, 'exists': shard_exists, 'reason': reason
                         })
 
                 # 判断文件状态
@@ -1637,7 +1625,7 @@ def cross_ec_health_check():
                     'status': status,
                     'online_shards': online_shards,
                     'total_shards': total_shards,
-                    'shards_debug': file_debug['shards']  # 调试用
+                    'shards': shards_detail
                 })
 
             except Exception as e:
@@ -1662,8 +1650,7 @@ def cross_ec_health_check():
             'total_disks': sum(len(n.get('disks', [])) for n in nodes),
             'k': k,
             'm': m,
-            'files': file_details,
-            'debug': debug_info  # 调试信息，确认问题后可删除
+            'files': file_details
         })
 
     except Exception as e:
@@ -1671,7 +1658,6 @@ def cross_ec_health_check():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-
 
 @ec_bp.route('/api/nodes/<node_id>/proxy/batch_delete', methods=['POST'])
 @login_required
