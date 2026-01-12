@@ -869,58 +869,132 @@ async exportAllCrossEcFiles(window) {
     }
 },
 
-// 打开添加磁盘对话框
+// 打开替换磁盘对话框
 openAddDiskToCrossEc(window) {
     window.showAddCrossEcDiskDialog = true;
-    window.addCrossEcDiskForm = {
-        selectedNode: null,
-        selectedDisks: []
+    window.replaceDiskForm = {
+        oldDisk: null,
+        newNodeId: null,
+        newDisk: null
     };
-    window.addCrossEcNodeDisks = [];
+    window.replaceNodeDisks = [];
+
+    // 找出离线的磁盘
+    this.detectOfflineDisks(window);
 },
 
-// 加载节点可用磁盘（添加磁盘用）
-async loadNodeDisksForAdd(window) {
-    if (!window.addCrossEcDiskForm.selectedNode) return;
+// 检测离线磁盘
+detectOfflineDisks(window) {
+    const offlineDisks = [];
+    const onlineNodeIds = (window.allNodes || [])
+        .filter(n => n.status === 'online')
+        .map(n => n.id);
 
-    try {
-        const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${window.addCrossEcDiskForm.selectedNode}/disks`);
-        const allDisks = res.data.disks || [];
+    for (const nodeInfo of (window.crossEcConfig?.nodes || [])) {
+        const nodeId = nodeInfo.node_id || nodeInfo.nodeId;
+        const nodeName = nodeInfo.nodeName || nodeId;
+        const isNodeOnline = onlineNodeIds.includes(nodeId);
 
-        // 过滤掉已在EC池中的磁盘
-        const nodeInfo = (window.crossEcConfig.nodes || []).find(n =>
-            (n.node_id || n.nodeId) === window.addCrossEcDiskForm.selectedNode
-        );
-        const usedDisks = nodeInfo?.disks || [];
+        for (const disk of (nodeInfo.disks || [])) {
+            const diskMount = typeof disk === 'string' ? disk : disk.mount || disk;
 
-        window.addCrossEcNodeDisks = allDisks.filter(d => !usedDisks.includes(d.mount || d.drive));
-    } catch (e) {
-        window.addCrossEcNodeDisks = [];
+            // 检查节点是否离线，或者磁盘是否在健康检查中被标记为离线
+            if (!isNodeOnline) {
+                offlineDisks.push({
+                    node_id: nodeId,
+                    nodeName: nodeName,
+                    disk: diskMount,
+                    reason: '节点离线'
+                });
+            }
+        }
     }
+
+    // 也从健康检查结果中获取离线磁盘
+    if (window.crossEcHealthReport?.files) {
+        for (const file of window.crossEcHealthReport.files) {
+            for (const shard of (file.shards || [])) {
+                if (!shard.exists && shard.node_id && shard.disk) {
+                    const exists = offlineDisks.some(d =>
+                        d.node_id === shard.node_id && d.disk === shard.disk
+                    );
+                    if (!exists) {
+                        offlineDisks.push({
+                            node_id: shard.node_id,
+                            nodeName: shard.node_id,
+                            disk: shard.disk,
+                            reason: shard.reason || '磁盘离线'
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    window.offlineDisks = offlineDisks;
 },
 
-// 确认添加磁盘到跨节点EC
-async confirmAddDiskToCrossEc(window) {
-    if (!window.addCrossEcDiskForm.selectedNode || window.addCrossEcDiskForm.selectedDisks.length === 0) {
-        alert('请选择节点和磁盘');
+// 加载节点可用磁盘（用于替换）
+async loadNodeDisksForReplace(window) {
+    if (!window.replaceDiskForm.newNodeId) {
+        window.replaceNodeDisks = [];
         return;
     }
 
     try {
-        const res = await axios.post(`${this.apiBaseUrl}/api/cross_ec_config/add_disk`, {
-            node_id: window.addCrossEcDiskForm.selectedNode,
-            disks: window.addCrossEcDiskForm.selectedDisks
+        const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${window.replaceDiskForm.newNodeId}/disks`);
+        const allDisks = res.data.disks || [];
+
+        // 过滤掉已在EC池中的磁盘
+        const usedDisks = new Set();
+        for (const nodeInfo of (window.crossEcConfig?.nodes || [])) {
+            if ((nodeInfo.node_id || nodeInfo.nodeId) === window.replaceDiskForm.newNodeId) {
+                for (const d of (nodeInfo.disks || [])) {
+                    const mount = typeof d === 'string' ? d : d.mount || d;
+                    usedDisks.add(mount.toUpperCase());
+                }
+            }
+        }
+
+        window.replaceNodeDisks = allDisks.filter(d => {
+            const mount = (d.mount || d.drive || '').toUpperCase();
+            return !usedDisks.has(mount);
+        });
+    } catch (e) {
+        window.replaceNodeDisks = [];
+    }
+},
+
+// 确认替换磁盘
+async confirmReplaceDisk(window) {
+    const { oldDisk, newNodeId, newDisk } = window.replaceDiskForm;
+
+    if (!oldDisk || !newNodeId || !newDisk) {
+        alert('请完整选择要替换的磁盘和新磁盘');
+        return;
+    }
+
+    if (!confirm(`确定要将 ${oldDisk.nodeName}:${oldDisk.disk} 替换为 ${newNodeId}:${newDisk} 吗？\n\n替换后需要执行"重建分片"来恢复数据。`)) {
+        return;
+    }
+
+    try {
+        const res = await axios.post(`${this.apiBaseUrl}/api/cross_ec_config/replace_disk`, {
+            old_node_id: oldDisk.node_id,
+            old_disk: oldDisk.disk,
+            new_node_id: newNodeId,
+            new_disk: newDisk
         });
 
         if (res.data.success) {
-            alert('磁盘添加成功！');
+            alert(`替换成功！已更新 ${res.data.updated_files} 个文件的分片信息。\n\n请点击"重建分片"来恢复数据到新磁盘。`);
             window.showAddCrossEcDiskDialog = false;
             await this.loadEcWindowData(window);
         } else {
-            alert(res.data.error || '添加失败');
+            alert(res.data.error || '替换失败');
         }
     } catch (e) {
-        alert('添加失败: ' + (e.response?.data?.error || e.message));
+        alert('替换失败: ' + (e.response?.data?.error || e.message));
     }
 },
 async openExportCrossEcDialog(window) {
@@ -1122,10 +1196,11 @@ async detectLostShards(window) {
 },
 
 // 执行分片重建
+// 执行分片重建
 async executeRebuildShards(window) {
     const filesToRebuild = window.rebuildForm.mode === 'auto'
-        ? window.lostShards.map(s => s.filename)
-        : window.rebuildForm.selectedFiles;
+        ? (window.lostShards || []).map(s => s.filename)
+        : (window.rebuildForm.selectedFiles || []);
 
     if (filesToRebuild.length === 0) {
         alert('没有需要重建的文件');
@@ -1137,6 +1212,9 @@ async executeRebuildShards(window) {
     try {
         window.rebuildProgress = { show: true, current: 0, total: filesToRebuild.length, status: '开始重建...' };
 
+        let successCount = 0;
+        let failedFiles = [];
+
         for (let i = 0; i < filesToRebuild.length; i++) {
             const filename = filesToRebuild[i];
             window.rebuildProgress.current = i + 1;
@@ -1144,17 +1222,24 @@ async executeRebuildShards(window) {
 
             try {
                 await axios.post(`${this.apiBaseUrl}/api/cross_ec_config/rebuild_shard`, {
-                    filename,
-                    target_disk: window.rebuildForm.targetDisk
+                    filename
                 });
+                successCount++;
             } catch (e) {
                 console.error(`重建 ${filename} 失败:`, e);
+                failedFiles.push(filename);
             }
         }
 
         window.rebuildProgress.show = false;
         window.showRebuildShardsDialog = false;
-        alert('重建完成！');
+
+        if (failedFiles.length > 0) {
+            alert(`重建完成！成功 ${successCount} 个，失败 ${failedFiles.length} 个`);
+        } else {
+            alert('重建完成！');
+        }
+
         await this.loadEcWindowData(window);
     } catch (e) {
         window.rebuildProgress = { show: false };
@@ -1521,7 +1606,8 @@ openCreatePoolDialog(win) {
 },
 
 // 打开编辑池对话框
-openEditPoolDialog(win, pool) {
+// 打开编辑池对话框
+async openEditPoolDialog(win, pool) {
     win.poolForm = {
         id: pool.id,
         name: pool.name,
@@ -1532,6 +1618,16 @@ openEditPoolDialog(win, pool) {
     win.poolEditMode = true;
     win.selectedNodeForDisk = null;
     win.nodeDisks = [];
+
+    // 加载节点列表
+    try {
+        const nodesRes = await axios.get(`${this.apiBaseUrl}/api/nodes`);
+        win.allNodes = nodesRes.data || [];
+    } catch (e) {
+        console.error('加载节点列表失败', e);
+        win.allNodes = [];
+    }
+
     win.showCreatePoolDialog = true;
 },
 
@@ -1829,16 +1925,22 @@ async deleteCrossVolume(win, volName) {
 },
 
 // 选择节点加载其磁盘
+// 选择节点加载其磁盘
 async selectNodeForDiskSelection(win, node) {
     win.selectedNodeForDisk = node;
     win.nodeDisksLoading = true;
     win.nodeDisks = [];
+    win.nodeDisksError = null;  // 添加错误状态
     try {
         const res = await axios.get(`${this.apiBaseUrl}/api/nodes/${node.id}/disks`);
         win.nodeDisks = res.data?.disks || res.data || [];
     } catch (e) {
         console.error('加载节点磁盘失败', e);
         win.nodeDisks = [];
+        // 添加用户可见的错误提示
+        const errorMsg = e.response?.data?.error || e.response?.data?.detail || e.message || '未知错误';
+        win.nodeDisksError = `无法加载磁盘列表: ${errorMsg}`;
+        alert(`节点 ${node.name} 磁盘加载失败！\n\n错误信息: ${errorMsg}\n\n请检查：\n1. 该节点是否真的在线\n2. 后端日志中的详细错误`);
     }
     win.nodeDisksLoading = false;
 },
@@ -1858,7 +1960,9 @@ toggleDiskSelection(win, node, disk) {
             disk: disk.mount,
             volumeSerial: disk.volume_serial || disk.serial || '',  // 保存卷序列号
             total: disk.total_gb || disk.total,
-            free: disk.free_gb || disk.free
+            free: disk.free_gb || disk.free,
+             nodeStatus: 'online',
+    diskStatus: 'online'
         });
     }
 },
