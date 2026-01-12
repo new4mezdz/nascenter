@@ -1744,11 +1744,18 @@
                    class="w-4 h-4">
             <span class="text-xl">{{ file.is_dir ? '📁' : getFileIcon(file.name) }}</span>
             <div class="flex-1 min-w-0">
-              <div class="text-sm font-medium truncate">{{ file.name }}</div>
-              <div class="text-xs text-gray-500">
-                {{ file.is_dir ? '文件夹' : formatBytes(file.size) }}
-                <span class="ml-2">{{ formatDate(file.mtime) }}</span>
-              </div>
+              <div class="text-sm font-medium truncate flex items-center gap-2">
+  {{ file.name }}
+  <!-- EC文件健康状态标签 -->
+  <span v-if="file.health === 'healthy'" class="px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-700">健康</span>
+  <span v-else-if="file.health === 'at_risk'" class="px-1.5 py-0.5 text-xs rounded bg-yellow-100 text-yellow-700">风险</span>
+  <span v-else-if="file.health === 'corrupted'" class="px-1.5 py-0.5 text-xs rounded bg-red-100 text-red-700">损坏</span>
+</div>
+<div class="text-xs text-gray-500">
+  {{ file.is_dir ? '文件夹' : formatBytes(file.size) }}
+  <span class="ml-2">{{ formatDate(file.mtime) }}</span>
+  <span v-if="file.availableShards !== undefined" class="ml-2 text-gray-400">({{ file.availableShards }}/{{ file.totalShards }}分片)</span>
+</div>
             </div>
             <div class="flex gap-1">
               <button v-if="!file.is_dir" @click.stop="downloadFile(window, file)"

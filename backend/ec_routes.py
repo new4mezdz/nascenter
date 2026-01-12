@@ -660,24 +660,71 @@ def get_ec_status():
 @ec_bp.route('/api/ec_files', methods=['GET'])
 @login_required
 def get_ec_files():
-    """获取跨节点EC池中的文件列表"""
+    """获取跨节点EC池中的文件列表（含健康状态）"""
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute('SELECT filename, size, k, m, sha256, created_at FROM cross_ec_files')
+    # 获取在线节点
+    online_nodes = {}
+    cursor.execute('SELECT node_id, ip, port FROM nodes WHERE status = ?', ('online',))
+    for r in cursor.fetchall():
+        online_nodes[str(r[0])] = {'ip': r[1], 'port': r[2]}
+
+    cursor.execute('SELECT filename, size, k, m, sha256, created_at, disks FROM cross_ec_files')
     rows = cursor.fetchall()
     conn.close()
 
-    files = [{
-        'name': row[0],
-        'size': row[1],
-        'k': row[2],
-        'm': row[3],
-        'sha256': row[4],
-        'ctime': row[5],
-        'source': 'cross',
-        'sourceName': '跨节点EC'
-    } for row in rows]
+    files = []
+    for row in rows:
+        filename, size, k, m, sha256, ctime, disks_json = row
+
+        # 计算健康状态
+        health_status = 'healthy'
+        available_shards = 0
+        total_shards = k + m
+
+        if disks_json:
+            disks = json.loads(disks_json) if isinstance(disks_json, str) else disks_json
+            for idx, disk_info in enumerate(disks[:total_shards]):
+                if not isinstance(disk_info, dict):
+                    continue
+                node_id = str(disk_info.get('node_id') or disk_info.get('nodeId') or '')
+                shard_path = disk_info.get('path', '')
+
+                if node_id in online_nodes and shard_path:
+                    try:
+                        resp = requests.get(
+                            f"http://{online_nodes[node_id]['ip']}:{online_nodes[node_id]['port']}/api/file_exists",
+                            params={'path': shard_path},
+                            headers={'X-NAS-Secret': NAS_SHARED_SECRET},
+                            timeout=3
+                        )
+                        if resp.status_code == 200 and resp.json().get('exists'):
+                            available_shards += 1
+                    except:
+                        pass
+
+            missing = total_shards - available_shards
+            if missing == 0:
+                health_status = 'healthy'
+            elif missing <= m:
+                health_status = 'at_risk'
+            else:
+                health_status = 'corrupted'
+
+        files.append({
+            'name': filename,
+            'size': size,
+            'k': k,
+            'm': m,
+            'sha256': sha256,
+            'ctime': ctime,
+            'source': 'cross',
+            'sourceName': '跨节点EC',
+            'health': health_status,
+            'availableShards': available_shards,
+            'totalShards': total_shards
+        })
 
     return jsonify({'success': True, 'files': files})
 

@@ -2897,11 +2897,14 @@ async loadCrossPoolFiles(win, pool) {
     try {
         const res = await axios.get(`${this.apiBaseUrl}/api/ec_files`);
         win.fmFiles = (res.data.files || []).map(f => ({
-            name: f.name,
-            isDir: false,
-            size: f.size,
-            type: 'ec-file'
-        }));
+    name: f.name,
+    isDir: false,
+    size: f.size,
+    type: 'ec-file',
+    health: f.health,
+    availableShards: f.availableShards,
+    totalShards: f.totalShards
+}));
     } catch (e) {
         win.fmFiles = [];
     }
@@ -3397,11 +3400,15 @@ async downloadFile(win, file) {
     }
 
     // 跨节点EC文件下载
-    if (win.selectedVolumeType === 'cross-ec') {
-        const url = `${this.apiBaseUrl}/api/ec_download?name=${encodeURIComponent(file.name)}`;
-        window.open(url, '_blank');
+if (win.selectedVolumeType === 'cross-ec') {
+    if (file.health === 'corrupted') {
+        alert(`文件 "${file.name}" 已损坏（可用分片 ${file.availableShards}/${file.totalShards}），无法下载`);
         return;
     }
+    const url = `${this.apiBaseUrl}/api/ec_download?name=${encodeURIComponent(file.name)}`;
+    window.open(url, '_blank');
+    return;
+}
 
     // 普通文件下载
     const url = `${this.apiBaseUrl}/api/nodes/${win.selectedFmNode.id}/download?disk=${encodeURIComponent(win.selectedFmDisk)}&path=${encodeURIComponent(win.currentPath ? `${win.currentPath}/${file.name}` : file.name)}`;
@@ -3432,9 +3439,13 @@ previewFile(win, file) {
         url = `${this.apiBaseUrl}/api/cross-pools/${win.selectedCrossPool.id}/download?filepath=${encodeURIComponent(file.path || file.name)}`;
     }
     // 跨节点EC文件预览
-    else if (win.selectedVolumeType === 'cross-ec') {
-        url = `${this.apiBaseUrl}/api/ec_download?name=${encodeURIComponent(file.name)}`;
+else if (win.selectedVolumeType === 'cross-ec') {
+    if (file.health === 'corrupted') {
+        alert(`文件 "${file.name}" 已损坏（可用分片 ${file.availableShards}/${file.totalShards}），无法预览`);
+        return;
     }
+    url = `${this.apiBaseUrl}/api/ec_download?name=${encodeURIComponent(file.name)}`;
+}
     // 普通文件预览
     else {
         const path = win.currentPath ? `${win.currentPath}/${file.name}` : file.name;
